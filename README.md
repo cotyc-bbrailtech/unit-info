@@ -38,8 +38,23 @@ npm run dev
 
 A serial number may exist on exactly one line in the whole fleet. `resolveFleet()` rebuilds the
 `serial → lines` index on every record change, so both sides of a collision re-evaluate in the
-same render. Coverage counts a line as on record only when a real serial exists; flags count
-`flagged` + `dup`.
+same render. Flags count `flagged` + `dup`.
+
+## What counts as verified
+
+This **deviates from the handoff**, which says a line counts only when a real serial exists.
+Taken literally that made the audit pointless: only four part types carry serials
+(`DMF-1650-F`, `-R`, `SERCO-8500`, `APERA-VUE-*`), so roughly three lines in twenty could ever
+be verified, and "Present, as listed" was a silent no-op on all the rest. The rule is now split
+by whether the part can carry a serial at all:
+
+- **Parts with a serial slot** — the serial is the evidence. No serial, no verified standing,
+  and clearing a serial drops the line back to `open` exactly as the handoff describes.
+- **Parts without one** — the auditor confirming it on the machine *is* the evidence, so an
+  explicit verify stands on its own.
+
+So coverage means "lines confirmed", and walking a machine moves it. Expect percentages to climb
+as auditing starts; they are not comparable to figures from before this change.
 
 Known collisions in the imported sheet — data to be resolved, not bugs:
 T-16/T-53 (27431), T-43/T-47 (34946), T-24/T-25 (30068), T-25/T-57 (30067).

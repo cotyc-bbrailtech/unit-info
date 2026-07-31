@@ -67,6 +67,32 @@ describe('empty serials', () => {
   })
 })
 
+describe('parts that carry no serial', () => {
+  const WHEEL = 'RG:DMF-1650-WH'
+
+  it('stay verified when an auditor marks them present', () => {
+    // The guide wheel has no serial slot, so the walk is the only evidence
+    // there is. Without this the audit's "Present, as listed" is a no-op.
+    const records: Records = { [recordKey('T-19', WHEEL)]: { status: 'verified' } }
+    expect(at('T-19', WHEEL, records).status).toBe('verified')
+  })
+
+  it('count towards coverage once confirmed', () => {
+    const before = resolveFleet(FLEET, {}).coverage.get('T-19')!.verified
+    const records: Records = { [recordKey('T-19', WHEEL)]: { status: 'verified' } }
+    expect(resolveFleet(FLEET, records).coverage.get('T-19')!.verified).toBe(before + 1)
+  })
+
+  it('still start unverified', () => {
+    expect(at('T-19', WHEEL).status).toBe('open')
+  })
+
+  it('do not weaken the rule for parts that do carry a serial', () => {
+    const records: Records = { [recordKey('T-19', RG_FRONT)]: { status: 'verified', serial: '' } }
+    expect(at('T-19', RG_FRONT, records).status).toBe('open')
+  })
+})
+
 describe('coverage', () => {
   it('counts a line on record only when a real serial exists', () => {
     // T-55 and T-56 have no gear or loader serials recorded.

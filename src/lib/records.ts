@@ -105,7 +105,10 @@ function resolveRecord(
       out.status = 'verified'
       out.note = out.note || NOTES.unique
     }
-  } else if (!serial && (out.status === 'dup' || out.status === 'verified')) {
+  } else if (!serial && line.onRecord && (out.status === 'dup' || out.status === 'verified')) {
+    // Only a part that *can* carry a serial loses its verified standing when
+    // the serial goes. For everything else the auditor's confirmation on the
+    // machine is the evidence, so an explicit verify stands on its own.
     out.status = 'open'
     out.note = ''
   }
