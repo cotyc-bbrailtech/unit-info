@@ -16,12 +16,16 @@ export interface VueUnit {
 }
 
 /**
- * Transcribed from "Vue license notes.docx". The TeamViewer IDs and passwords
- * in that sheet are deliberately NOT imported — this app is served publicly
- * from GitHub Pages. Keep them out of the repo.
+ * Mostly transcribed from "Vue license notes.docx". The TeamViewer IDs and
+ * passwords in that sheet are deliberately NOT imported — this app is served
+ * publicly from GitHub Pages. Keep them out of the repo.
  *
  * The sheet lists 000-20230822-0228 on two rows with the same TeamViewer ID;
  * it is one unit and appears here once.
+ *
+ * 000-20240222-0421 (T-53) is NOT from that sheet — it postdates every serial
+ * in it, so the notes are out of date. Expect more systems to be missing from
+ * them, and treat the unlocated rows as a floor rather than the full backlog.
  */
 export const VUE_UNITS: VueUnit[] = parseCsvRows(vueCsv).map((r) => ({
   serial: r.vue_serial,

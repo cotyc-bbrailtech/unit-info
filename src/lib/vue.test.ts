@@ -18,10 +18,11 @@ const camFor = (vueRev: string) =>
   }).find((l) => l.part === 'VT-4110-02')!
 
 describe('Vue licence sheet', () => {
-  it('holds every unique system from the sheet', () => {
-    // 18 rows, but 000-20230822-0228 is listed twice.
-    expect(VUE_UNITS).toHaveLength(17)
-    expect(new Set(VUE_UNITS.map((v) => v.serial)).size).toBe(17)
+  it('holds every unique system', () => {
+    // 17 from the sheet (18 rows, but 000-20230822-0228 is listed twice) plus
+    // 000-20240222-0421, which postdates the sheet entirely.
+    expect(VUE_UNITS).toHaveLength(18)
+    expect(new Set(VUE_UNITS.map((v) => v.serial)).size).toBe(18)
   })
 
   it('carries no credentials', () => {
@@ -53,19 +54,25 @@ describe('Vue licence sheet', () => {
     expect(isOnMachine(demo)).toBe(false)
   })
 
-  it('splits into 4 on machines, 4 elsewhere, 9 unlocated', () => {
+  it('splits into 5 on machines, 4 elsewhere, 9 unlocated', () => {
     const onMachine = VUE_UNITS.filter(isOnMachine)
     const unlocated = VUE_UNITS.filter((v) => !locationOf(v))
-    expect(onMachine.map((v) => locationOf(v)).sort()).toEqual(['T-32', 'T-34', 'T-36', 'T-50'])
+    expect(onMachine.map((v) => locationOf(v)).sort()).toEqual([
+      'T-32',
+      'T-34',
+      'T-36',
+      'T-50',
+      'T-53',
+    ])
     expect(unlocated).toHaveLength(9)
     expect(VUE_UNITS.length - onMachine.length - unlocated.length).toBe(4)
   })
 })
 
 describe('vision subassemblies on the fleet', () => {
-  it('gives Tie Detection only to the four machines the sheet places', () => {
+  it('gives Tie Detection only to the machines a licence places', () => {
     const withVt = FLEET.filter((u) => u.subs.includes('VT')).map((u) => u.id)
-    expect(withVt.sort()).toEqual(['T-32', 'T-34', 'T-36', 'T-50'])
+    expect(withVt.sort()).toEqual(['T-32', 'T-34', 'T-36', 'T-50', 'T-53'])
   })
 
   it('gives VGR to no machine — every VGR system is off the fleet', () => {
@@ -118,6 +125,13 @@ describe('vision subassemblies on the fleet', () => {
     const cam = camFor('B')
     expect(cam.rev).toBe('B')
     expect(cam.desc).toBe('Industrial camera — IDS, rolling shutter')
+  })
+
+  it('gives T-53 the rev B camera, not the rev A one its neighbours carry', () => {
+    const cam = unit('T-53').lines.find((l) => l.part === 'VT-4110-02')!
+    expect(cam.rev).toBe('B')
+    expect(cam.desc).toBe('Industrial camera — IDS, rolling shutter')
+    expect(unit('T-53').lines.find((l) => l.key === VUE_TD)!.serial).toBe('000-20240222-0421')
   })
 
   it('says so rather than guessing when the revision names no variant', () => {

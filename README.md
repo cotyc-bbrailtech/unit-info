@@ -77,12 +77,23 @@ and that is where a genuine permission boundary belongs.
 
 ## Vision systems
 
-Which machines carry a vision system comes from the Apera Vue licence sheet, not from the app.
-Of 17 Vue systems, only **4 sit on a machine** — T-50, T-32, T-36, T-34, all Tie Detection,
-Rev A — and all four are *location estimates* the sheet never confirmed, so they import as
-"not yet confirmed on the machine" and the audit is what closes them. **No machine has a VGR
-system**; every VGR unit is in the office, lab, or stock. Nine systems have no location
-recorded at all — that is the real backlog, and the Vue licences view lists it first.
+Which machines carry a vision system comes from the Apera Vue licence data, not from the app.
+Of 18 Vue systems, **5 sit on a machine**:
+
+- **T-50, T-32, T-36, T-34** — Tie Detection, Rev A, Basler camera. All four are *location
+  estimates* the sheet never confirmed, so they import as "not yet confirmed on the machine"
+  and the audit is what closes them.
+- **T-53** — Tie Detection, **Rev B**, IDS rolling shutter camera, location confirmed.
+
+**No machine has a VGR system**; every VGR unit is in the office, lab, or stock. Nine systems
+have no location recorded at all — that is the backlog, and the Vue licences view lists it first.
+
+### The licence sheet is out of date
+
+`000-20240222-0421` (T-53) does **not** appear in "Vue license notes.docx" — it postdates every
+serial in it, all of which are 2022 or 2023. So the sheet is not a complete inventory. Treat the
+nine unlocated rows as a floor, not the full backlog: there are likely other systems missing from
+it entirely, and reconciling that is worth doing before trusting the counts above.
 
 ### Tie Detection parts
 
@@ -93,8 +104,8 @@ unit — the PLC does that job.
 The camera is **revision-dependent**: rev A is a Basler, rev B an IDS rolling shutter. That
 variant resolves from the machine's Vue revision (`byRev` in `src/data/subassemblies.ts`), which
 is the only revision the app holds — if camera revision turns out to track something other than
-the licence revision, that mapping is the thing to change. All four machines are rev A today, so
-all four show the Basler.
+the licence revision, that mapping is the thing to change. Four machines are rev A and show the
+Basler; T-53 is rev B and shows the IDS.
 
 Part numbers for the camera, illuminator, and switch are still internal placeholders
 (`VT-####-##`); only the PLC carries its real manufacturer number.
