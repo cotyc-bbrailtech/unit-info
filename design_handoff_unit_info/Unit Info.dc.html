@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="stylesheet" href="_ds/industry-022297c4-f51f-46aa-9b60-05b3b7c8bacb/styles.css">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>
+body{margin:0}
+a:hover{color:var(--color-accent-700)}
+.row-hit{cursor:pointer}
+.row-hit:hover{background:color-mix(in srgb,var(--color-text) 4%,transparent)}
+
+/* Phones: one column, no device bezel, and the fleet table becomes stacked
+   records (inline styles are overridden with !important on purpose). */
+@media (max-width: 760px) {
+  .pad{padding:var(--space-4) var(--space-4) 40px!important}
+  .topbar{padding-top:calc(var(--space-3) + env(safe-area-inset-top))!important;
+    padding-left:max(var(--space-4),env(safe-area-inset-left))!important;
+    padding-right:max(var(--space-4),env(safe-area-inset-right))!important}
+  .phone-footer{padding-bottom:calc(var(--space-4) + env(safe-area-inset-bottom))!important}
+  .two-col{grid-template-columns:minmax(0,1fr)!important;gap:var(--space-4)!important}
+  .sticky{position:static!important;top:auto!important}
+  .topbar{flex-wrap:wrap;row-gap:var(--space-2)}
+  .topbar .seg{order:3}
+  h1{font-size:30px}
+  h2{font-size:24px}
+  .frame{padding:var(--space-2)!important}
+  .bezel{width:100%!important;padding:0!important;background:transparent!important;border-radius:0!important}
+  .screen{height:auto!important;border-radius:0!important;min-height:0!important}
+  .statusbar{display:none!important}
+  .audit-wrap{padding:0 0 var(--space-4)!important}
+  .audit-wrap > .text-muted{padding:0 var(--space-4)}
+  .table thead{display:none}
+  .table tbody tr{display:block;border-bottom:1px solid var(--color-divider);padding:var(--space-3) 0}
+  .table td{display:flex;align-items:center;justify-content:space-between;gap:var(--space-4);border:0!important;padding:3px var(--space-2)!important}
+  .table td::before{content:attr(data-label);flex:none;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:color-mix(in srgb,var(--color-text) 50%,transparent)}
+  .table td:first-child{font-size:20px;font-family:var(--font-heading)}
+  .table td:first-child::before{display:none}
+  .table td > div{flex:1;justify-content:flex-end}
+  .line-row{grid-template-columns:12px minmax(0,1fr) 84px!important;padding-left:var(--space-4)!important}
+  .line-row .desc{display:none}
+}
+</style>
+</helmet>
+
+<template id="__bundler_thumbnail">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="#5980a6"></rect><g fill="none" stroke="#f2f2f3" stroke-width="2"><rect x="30" y="30" width="40" height="40"></rect><path d="M30 44h40M30 56h40"></path></g></svg>
+</template>
+
+<div style="min-height:100vh;display:flex;flex-direction:column">
+
+  <div class="nav topbar" style="justify-content:space-between;padding:var(--space-3) var(--space-6);border-bottom:1px solid var(--color-divider);position:sticky;top:0;z-index:20;background:var(--color-bg)">
+    <div class="nav-brand" style="margin-right:auto">UNIT INFO</div>
+    <div style="display:flex;align-items:center;gap:var(--space-4)">
+      <div class="text-muted" style="display:flex;align-items:center;gap:var(--space-2);font-size:12px">
+        <span style="width:7px;height:7px;background:var(--color-accent);flex:none"></span>
+        <span>{{ syncLabel }}</span>
+      </div>
+      <div class="seg">
+        <label class="seg-opt"><input type="radio" name="view" checked="{{ isDesktop }}" onChange="{{ goDesktop }}">Review</label>
+        <label class="seg-opt"><input type="radio" name="view" checked="{{ isPhone }}" onChange="{{ goPhone }}">Audit</label>
+      </div>
+    </div>
+  </div>
+
+  <sc-if value="{{ showFleet }}" hint-placeholder-val="{{ true }}">
+    <div class="pad" style="padding:var(--space-8) var(--space-6) 56px;display:flex;flex-direction:column;gap:var(--space-6);max-width:1120px">
+
+      <div>
+        <h1 style="margin:0 0 var(--space-2)">Fleet</h1>
+        <p class="text-muted" style="margin:0;font-size:14px">{{ summaryLine }}</p>
+      </div>
+
+      <div class="blueprint" style="padding:var(--space-4)">
+        <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+        <table class="table">
+          <thead>
+            <tr>
+              <th style="width:70px">Unit</th><th style="width:172px">Chassis VIN</th><th>Subassemblies</th>
+              <th style="width:200px">Record coverage</th><th style="width:80px">Flags</th><th style="width:110px">Last audit</th>
+            </tr>
+          </thead>
+          <tbody>
+            <sc-for list="{{ rows }}" as="r" hint-placeholder-count="12">
+              <tr class="row-hit" onClick="{{ r.onOpen }}">
+                <td style="font-weight:700;font-variant-numeric:tabular-nums">{{ r.unit }}</td>
+                <td data-label="VIN" class="text-muted" style="font-size:12px;letter-spacing:.02em">{{ r.vin }}</td>
+                <td data-label="Subassemblies">
+                  <div style="display:flex;gap:4px;flex-wrap:wrap">
+                    <sc-for list="{{ r.chips }}" as="c" hint-placeholder-count="4">
+                      <span class="tag tag-neutral">{{ c }}</span>
+                    </sc-for>
+                  </div>
+                </td>
+                <td data-label="Coverage">
+                  <div style="display:flex;align-items:center;gap:var(--space-3)">
+                    <div style="flex:1;height:6px;background:var(--color-neutral-300)">
+                      <div style="{{ r.barStyle }}"></div>
+                    </div>
+                    <span style="width:34px;text-align:right;font-variant-numeric:tabular-nums;font-size:12px">{{ r.pct }}</span>
+                  </div>
+                </td>
+                <td data-label="Flags" style="{{ r.flagStyle }}">{{ r.flags }}</td>
+                <td data-label="Last audit" class="text-muted" style="font-size:12px;font-variant-numeric:tabular-nums">{{ r.lastAudit }}</td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ showMachine }}">
+    <div class="pad" style="padding:var(--space-6);display:flex;flex-direction:column;gap:var(--space-4);max-width:1180px">
+      <a href="#" onClick="{{ backToFleet }}" style="display:inline-flex;align-items:center;gap:5px;font-size:12px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"></path><path d="M19 12H5"></path></svg>
+        Fleet
+      </a>
+
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:var(--space-6);flex-wrap:wrap">
+        <div>
+          <h2 style="margin:0 0 4px">{{ machineTitle }}</h2>
+          <div class="text-muted" style="font-size:12.5px;font-variant-numeric:tabular-nums">VIN {{ machineVin }} · {{ lineCountLabel }} · {{ machineCoverage }} on record</div>
+        </div>
+        <button class="btn btn-primary blueprint" onClick="{{ goPhone }}">
+          <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+          Continue audit
+        </button>
+      </div>
+
+      <div class="two-col" style="display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:var(--space-6);align-items:start">
+
+        <div class="blueprint" style="padding:var(--space-4) 0">
+          <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+          <sc-for list="{{ groups }}" as="g" hint-placeholder-count="4">
+            <div style="border-bottom:1px solid color-mix(in srgb,var(--color-text) 8%,transparent)">
+              <div class="row-hit" onClick="{{ g.onToggle }}" style="display:flex;align-items:center;gap:var(--space-3);padding:var(--space-3) var(--space-4)">
+                <span style="{{ g.caretStyle }}">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg>
+                </span>
+                <span style="font-family:var(--font-heading);font-weight:600;font-size:17px">{{ g.name }}</span>
+                <span style="flex:1"></span>
+                <span class="text-muted" style="font-size:12px;font-variant-numeric:tabular-nums">{{ g.summary }}</span>
+                <div style="width:64px;height:5px;background:var(--color-neutral-300)">
+                  <div style="{{ g.barStyle }}"></div>
+                </div>
+              </div>
+              <sc-if value="{{ g.open }}">
+                <div style="padding-bottom:var(--space-2)">
+                  <sc-for list="{{ g.lines }}" as="l" hint-placeholder-count="5">
+                    <div class="row-hit line-row" onClick="{{ l.onSelect }}" style="{{ l.rowStyle }}">
+                      <span style="{{ l.dotStyle }}"></span>
+                      <span style="font-weight:700;font-size:13px">{{ l.part }}</span>
+                      <span class="desc" style="font-size:13.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ l.desc }}</span>
+                      <span class="text-muted" style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;text-align:right">{{ l.statusLabel }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+
+        <div class="card blueprint sticky" style="padding:var(--space-4);gap:var(--space-4);position:sticky;top:80px">
+          <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-3)">
+            <div>
+              <div style="font-family:var(--font-heading);font-weight:600;font-size:22px;line-height:1.1">{{ sel.part }}</div>
+              <div style="font-size:13.5px;text-wrap:pretty">{{ sel.desc }}</div>
+            </div>
+            <span class="{{ sel.badgeCls }}">{{ sel.statusLabel }}</span>
+          </div>
+
+          <figure class="blueprint duotone" style="height:130px;display:flex;align-items:center;justify-content:center;background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--color-text) 7%,transparent) 0 1px,transparent 1px 8px)">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <figcaption class="text-muted" style="margin:0;font-size:11px;letter-spacing:.06em;text-transform:uppercase">{{ sel.photoLabel }}</figcaption>
+          </figure>
+
+          <sc-if value="{{ sel.specShown }}">
+            <div>
+              <div class="text-muted" style="font-size:10px;letter-spacing:.08em;text-transform:uppercase">Rated capacity</div>
+              <div style="font-size:13px;font-variant-numeric:tabular-nums;text-wrap:pretty">{{ sel.spec }}</div>
+            </div>
+          </sc-if>
+
+          <div class="field">
+            <label>Serial number</label>
+            <input class="input" type="text" placeholder="not recorded" value="{{ sel.serial }}" onChange="{{ sel.onSerial }}">
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--space-3) var(--space-4)">
+            <sc-for list="{{ sel.fields }}" as="f" hint-placeholder-count="3">
+              <div>
+                <div class="text-muted" style="font-size:10px;letter-spacing:.08em;text-transform:uppercase">{{ f.label }}</div>
+                <div style="font-size:13px;font-variant-numeric:tabular-nums">{{ f.value }}</div>
+              </div>
+            </sc-for>
+          </div>
+
+          <div>
+            <div class="text-muted" style="font-size:10px;letter-spacing:.08em;text-transform:uppercase">Note</div>
+            <div style="font-size:13px;text-wrap:pretty">{{ sel.note }}</div>
+          </div>
+
+          <div style="display:flex;gap:var(--space-2)">
+            <button class="btn btn-secondary" style="flex:1" onClick="{{ sel.onConfirm }}">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>
+              Verified
+            </button>
+            <button class="btn btn-primary" style="flex:1" onClick="{{ sel.onFlag }}">Flag</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ showPhone }}">
+    <div class="pad audit-wrap" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:var(--space-4);padding:var(--space-6)">
+      <div class="bezel" style="width:392px;padding:10px;background:var(--color-neutral-900);border-radius:38px">
+        <div class="screen" style="border-radius:30px;overflow:hidden;background:var(--color-bg);height:740px;display:flex;flex-direction:column">
+
+          <div class="statusbar" style="display:flex;align-items:center;justify-content:space-between;padding:11px 22px 4px;font-size:12px;font-weight:500;font-variant-numeric:tabular-nums">
+            <span>9:41</span><span>LTE</span>
+          </div>
+
+          <div style="padding:var(--space-2) var(--space-4) var(--space-3);border-bottom:1px solid var(--color-divider)">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-3)">
+              <div>
+                <div style="font-family:var(--font-heading);font-weight:600;font-size:19px;line-height:1.1">{{ machineTitle }}</div>
+                <div class="text-muted" style="font-size:11.5px">{{ phoneSubName }}</div>
+              </div>
+              <div style="font-size:12px;font-variant-numeric:tabular-nums">{{ phoneProgress }}</div>
+            </div>
+            <div style="height:5px;background:var(--color-neutral-300);margin-top:var(--space-2)">
+              <div style="{{ phoneBarStyle }}"></div>
+            </div>
+          </div>
+
+          <div style="flex:1;overflow:hidden;padding:var(--space-4);display:flex;flex-direction:column;gap:var(--space-4)">
+            <div class="card blueprint" style="padding:var(--space-4);gap:var(--space-3)">
+              <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:var(--space-2)">
+                <div class="card-kicker">{{ phoneLocation }}</div>
+                <span class="{{ phoneBadgeCls }}">{{ phoneStatusLabel }}</span>
+              </div>
+              <div>
+                <div style="font-family:var(--font-heading);font-weight:600;font-size:27px;line-height:1.05">{{ phonePart }}</div>
+                <div style="font-size:14px;text-wrap:pretty">{{ phoneDesc }}</div>
+              </div>
+              <div style="display:flex;gap:var(--space-2);flex-wrap:wrap">
+                <span class="tag tag-neutral">rev {{ phoneRev }}</span>
+              </div>
+              <div class="field">
+                <label>Serial number</label>
+                <input class="input" type="text" placeholder="type or read from the nameplate" value="{{ phoneSerial }}" onChange="{{ phoneOnSerial }}">
+              </div>
+              <figure class="blueprint duotone" style="height:104px;display:flex;align-items:center;justify-content:center;background:repeating-linear-gradient(135deg,color-mix(in srgb,var(--color-text) 7%,transparent) 0 1px,transparent 1px 8px)">
+                <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                <figcaption class="text-muted" style="margin:0;font-size:11px;letter-spacing:.06em;text-transform:uppercase">{{ phonePhotoLabel }}</figcaption>
+              </figure>
+              <button class="btn btn-secondary btn-block" onClick="{{ phoneTogglePhoto }}">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"></path><circle cx="12" cy="13" r="3"></circle></svg>
+                {{ phonePhotoAction }}
+              </button>
+            </div>
+
+            <sc-if value="{{ phoneNoteShown }}">
+              <div class="blueprint" style="padding:var(--space-3);border-color:var(--color-accent);background:var(--color-accent-100)">
+                <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                <div style="font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-accent-800)">{{ phoneNoteTitle }}</div>
+                <div style="font-size:12.5px;color:var(--color-accent-900);text-wrap:pretty">{{ phoneNote }}</div>
+              </div>
+            </sc-if>
+
+            <span style="flex:1"></span>
+
+            <div style="display:flex;flex-direction:column;gap:var(--space-2)">
+              <div style="display:flex;gap:var(--space-2)">
+                <button class="btn btn-primary blueprint" style="flex:1;padding:14px" onClick="{{ phoneConfirm }}">
+                  <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+                  Present, as listed
+                </button>
+                <button class="btn btn-secondary" style="width:104px;padding:14px 0" onClick="{{ phoneFlag }}">Differs</button>
+              </div>
+              <div style="display:flex;gap:var(--space-2)">
+                <button class="btn btn-secondary" style="flex:1" onClick="{{ phonePrev }}">Back</button>
+                <button class="btn btn-secondary" style="flex:1" onClick="{{ phoneSkip }}">Not present</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="phone-footer" style="padding:var(--space-2) var(--space-4) var(--space-4);border-top:1px solid var(--color-divider);display:flex;align-items:center;justify-content:space-between">
+            <div class="text-muted" style="display:flex;align-items:center;gap:var(--space-2);font-size:11.5px">
+              <span style="width:6px;height:6px;background:var(--color-accent);flex:none"></span>
+              <span>{{ phoneQueue }}</span>
+            </div>
+            <button class="btn btn-ghost" onClick="{{ phoneSync }}">Sync now</button>
+          </div>
+        </div>
+      </div>
+      <div class="text-muted" style="font-size:12px">{{ queueLabel }}</div>
+    </div>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:900},&quot;startView&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;fleet&quot;,&quot;machine&quot;,&quot;phone&quot;],&quot;default&quot;:&quot;fleet&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Behavior&quot;},&quot;requirePhoto&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Behavior&quot;}}">
+class Component extends DCLogic {
+  /* From "Unit vin,rail,loader.docx" — Mack chassis VIN, DMF rail gear front/rear serials, Serco loader serial. */
+  DATA = [
+    ["T-16","1M2AX13C2AM009459","27431","27436","7725"],
+    ["T-18","1M2AX13C0AM009461","27435","27434","7727"],
+    ["T-19","1M2AX13C2AM009462","28142","28143","7758"],
+    ["T-20","1M2AX13C8AM011202","28394","28695","7334"],
+    ["T-22","1M2AX13C7BM014223","30065","30064","7976"],
+    ["T-24","1M2AX13C0BM014225","30089","30068","7979"],
+    ["T-25","1M2AX13C2BM014226","30067","30068","7978"],
+    ["T-26","1M2AX13C1CM015255","30644","31903","8048"],
+    ["T-27","1M2AX13C3CM015256","60646","30645","8049"],
+    ["T-28","1M2AX16C0CM01378","31294","31295","8150"],
+    ["T-29","1M2AX16C9CM017380","31296","31297","8180"],
+    ["T-30","1M2AX16C2CN017379","31866","31887","8151"],
+    ["T-31","1M2AX16C0CM017381","31675","31676","8179"],
+    ["T-32","1M2AX16C5DM019404","31900","31895","8253"],
+    ["T-33","1M2AX16C7DM019405","31902","30647","8254"],
+    ["T-34","1M2AX16CC9DM019406","31904","31905","8255"],
+    ["T-35","1M2AX16C0DM019407","31894","31901","8220"],
+    ["T-36","1M2AX16C3DM019403","31892","31893","8219"],
+    ["T-37","1M2AX16C0DM022047","34424","34425","10661"],
+    ["T-38","1M2AX16C2DM022048","34428","34429","8483"],
+    ["T-39","1M2AX16C0EM023524","34432","34433","8491"],
+    ["T-40","1M2AX16C2EM023525","34430","34431","8492"],
+    ["T-42","1M2AX16C7EM023522","33239","33240","8490"],
+    ["T-43","1M2AX16C3EM024635","34946","34941","8480"],
+    ["T-44","1M2AX16C3FM027293","34942","34943","8786"],
+    ["T-45","1M2AX16C7FM027295","34944","34945","8809"],
+    ["T-46","1M2AX16C9FM027296","35061","35062","8810"],
+    ["T-47","1M2AX16C5FM027294","34946","34947","8808"],
+    ["T-49","1M2AX16C2GM031028","4901","4902","7291"],
+    ["T-50","1M2AX16C4GM031029","38337","35697","9204"],
+    ["T-51","1M2GR3GC9LM016311","45979","45980","10986"],
+    ["T-52","1M2GR3GCOLM016312","46115","46116","11025"],
+    ["T-53","1M2GR3GC7MM023081","27431","47712","11362"],
+    ["T-54","1M2GR3GCMM024948","48549","48550","11323"],
+    ["T-55","1M2GR4GC3LM014978","","",""],
+    ["T-56","1M2GR4GC7RM039830","","",""],
+    ["T-57","1M2GR4GC9RMM039831","30067","35695","8807"]
+  ];
+  SUBS = {
+    RG: { name: "Rail Gear — DMF-1650", kind: "common", parts: [
+      ["DMF-1650-F", "Front rail gear assembly, DMF-1650", "D", "Front frame / axle", "front"],
+      ["DMF-1650-R", "Rear rail gear assembly, DMF-1650", "D", "Rear frame / axle", "rear"],
+      ["DMF-1650-WH", "Guide wheel, flanged — DMF-1650 set", "C", "Front + rear / wheels"],
+      ["DMF-1650-CYL", "Hydraulic lift cylinder, DMF-1650", "B", "Front frame / lift"],
+      ["DMF-1650-SW", "Rail sweep and hardware kit", "A", "Front frame / sweep"],
+      ["DMF-1650-PS", "Proximity sensor, gear-down interlock", "B", "Front frame / sensor"]]},
+    LD: { name: "Loader — Serco 8500 series", kind: "common", parts: [
+      ["SERCO-8500", "Serco 8500 series loader, main assembly", "E", "Deck / boom", "loader",
+        "Capacity 1: 12,282 lb @ 5'-0\" · Capacity 2: 3,226 lb @ 25'-0\""],
+      ["LD-2240-01", "Rotation bearing, slew", "A", "Deck / turret"],
+      ["LD-2310-03", "Grapple head, 42in", "C", "Boom tip"],
+      ["LD-2405-02", "Hydraulic valve bank, 6-section", "B", "Deck / valve enclosure"]]},
+    MG: { name: "Magnet System", kind: "common", parts: [
+      ["MG-3100-02", "Electromagnet, 48in circular", "B", "Boom tip / magnet"],
+      ["MG-3220-04", "Generator, 20kW hydraulic", "D", "Deck / power pack"],
+      ["MG-3310-02", "Magnet controller", "C", "Deck / electrical cabinet"]]},
+    VT: { name: "Vision — Tie Detection", kind: "optional", parts: [
+      ["VT-4110-02", "Industrial camera, 5MP mono", "B", "Underframe / center"],
+      ["VT-4200-01", "LED bar illuminator", "A", "Underframe / center"],
+      ["VT-4305-02", "Edge compute unit", "B", "Cab / rack"]]},
+    VG: { name: "Vision — VGR", kind: "optional", parts: [
+      ["VG-5100-02", "VGR sensor head", "B", "Deck / mast"],
+      ["VG-5210-01", "Laser line projector", "A", "Deck / mast"],
+      ["VG-5320-03", "Vision controller", "C", "Cab / rack"]]},
+    RB: { name: "Robot", kind: "optional", parts: [
+      ["RB-6100-01", "6-axis manipulator arm", "A", "Deck / robot base"],
+      ["RB-6200-02", "Robot controller cabinet", "B", "Deck / robot base"],
+      ["RB-6310-01", "End effector, tie plate gripper", "C", "Robot / tool flange"]]},
+    CV: { name: "Conveyor", kind: "optional", parts: [
+      ["CV-7100-03", "Conveyor frame, 12ft", "C", "Deck / rear"],
+      ["CV-7210-01", "Drive motor, hydraulic", "A", "Deck / rear"],
+      ["CV-7305-02", "Belt, cleated 24in", "B", "Deck / rear"]]}
+  };
+  NOTES = [
+    "Nameplate matched, no corrosion.",
+    "Installed part is one rev behind the drawing — sent to engineering to confirm supersession.",
+    "Not present on this unit; mounting provisions capped.",
+    "Serial plate unreadable, transcribed from service record."
+  ];
+
+  state = { view: this.props.startView || "fleet", unit: 0, openGroups: {}, sel: null, records: {}, step: 0, queue: 3 };
+  ver = 0;
+  covCache = {};
+
+  h(s) { let x = 2166136261; for (let i = 0; i < s.length; i++) { x ^= s.charCodeAt(i); x = Math.imul(x, 16777619); } return (x >>> 0) / 4294967295; }
+
+  fleet = this.buildFleet();
+  buildFleet() {
+    const out = this.DATA.map(d => {
+      const id = d[0], r = k => this.h(id + k);
+      const subs = ["RG", "LD", "MG"];
+      if (r("vt") > 0.45) subs.push("VT");
+      if (r("vg") > 0.62) subs.push("VG");
+      if (r("rb") > 0.78) subs.push("RB");
+      if (r("cv") > 0.55) subs.push("CV");
+      const days = Math.floor(r("d") * 190);
+      return { id, subs, vin: d[1], serials: { front: d[2], rear: d[3], loader: d[4] },
+        lastAudit: days > 170 ? "never" : days + "d ago", seed: r("s") };
+    });
+    out.forEach(u => { u.lineList = this.mkLines(u); });
+    return out;
+  }
+
+  /* The serial actually on record: a user-entered value wins over the sheet import. */
+  serialOf(unit, line) {
+    const r = this.state.records[unit.id + "|" + line.key];
+    return r && r.serial !== undefined ? r.serial : line.serial;
+  }
+
+  /* Serials must be unique across the fleet. The index is derived from current
+     records and rebuilt whenever a record changes, so both sides of a collision
+     re-evaluate in the same render. */
+  index() {
+    if (this.ixVer === this.ver && this.serialIndex) return this.serialIndex;
+    const ix = {};
+    this.fleet.forEach(u => u.lineList.forEach(l => {
+      const s = this.serialOf(u, l);
+      if (s) (ix[s] = ix[s] || []).push(u.id + " · " + l.part);
+    }));
+    this.serialIndex = ix; this.ixVer = this.ver;
+    return ix;
+  }
+
+  dupOf(unit, line, serial) {
+    const hits = (this.index()[serial] || []).filter(x => x !== unit.id + " · " + line.part);
+    return hits.length ? hits : null;
+  }
+
+  mkLines(unit) {
+    const out = [];
+    unit.subs.forEach(code => {
+      const s = this.SUBS[code];
+      s.parts.forEach(p => out.push({
+        key: code + ":" + p[0], sub: code, subName: s.name,
+        part: p[0], desc: p[1], rev: p[2], loc: p[3],
+        serial: p[4] ? (unit.serials[p[4]] || "") : "",
+        onRecord: !!p[4], spec: p[5] || "",
+        seed: this.h(unit.id + code + p[0] + "seed")
+      }));
+    });
+    return out;
+  }
+
+  rec(unit, line) {
+    const stored = this.state.records[unit.id + "|" + line.key];
+    const serial = this.serialOf(unit, line);
+    let out;
+    if (stored) out = Object.assign({}, stored);
+    else if (line.onRecord && serial) out = { status: "verified", photo: false, note: "Serial captured from the unit record sheet — not yet confirmed on the machine." };
+    else out = { status: "open", photo: false, note: "" };
+    out.serial = serial;
+    if (serial && out.status !== "absent" && out.status !== "flagged") {
+      const dup = this.dupOf(unit, line, serial);
+      if (dup) {
+        out.status = "dup";
+        out.note = "Serial " + serial + " is also recorded on " + dup.join(", ") + ". A serial can only sit on one unit — engineering to resolve.";
+      } else if (out.status === "dup" || out.status === "open") {
+        out.status = "verified";
+        out.note = out.note || "Serial entered on the unit — unique across the fleet.";
+      }
+    } else if (!serial && (out.status === "dup" || out.status === "verified")) {
+      out.status = "open"; out.note = "";
+    }
+    return out;
+  }
+
+  setRec(unit, line, patch) {
+    const k = unit.id + "|" + line.key, cur = this.rec(unit, line);
+    this.ver++; this.covCache = {}; this.serialIndex = null;
+    this.setState(s => ({ records: Object.assign({}, s.records, { [k]: Object.assign({}, cur, patch) }) }));
+  }
+
+  cov(unit) {
+    const ck = unit.id + "|" + this.ver;
+    if (this.covCache[ck]) return this.covCache[ck];
+    const ls = unit.lineList;
+    let v = 0, f = 0;
+    for (let i = 0; i < ls.length; i++) { const s = this.rec(unit, ls[i]).status; if (s === "verified") v++; else if (s === "flagged" || s === "dup") f++; }
+    const out = { total: ls.length, verified: v, flags: f, pct: Math.round((v / ls.length) * 100) };
+    this.covCache[ck] = out;
+    return out;
+  }
+
+  badge(status) {
+    const map = {
+      verified: ["tag tag-accent", "Verified", "var(--color-accent)"],
+      flagged: ["tag tag-outline", "Flagged", "var(--color-accent-800)"],
+      dup: ["tag tag-outline", "Duplicate serial", "var(--color-accent-800)"],
+      absent: ["tag tag-neutral", "Not present", "var(--color-neutral-400)"],
+      open: ["tag tag-neutral", "Unverified", "var(--color-neutral-300)"]
+    };
+    const m = map[status] || map.open;
+    return { cls: m[0], label: m[1], dot: m[2] };
+  }
+
+  renderVals() {
+    const st = this.state, unit = this.fleet[st.unit], lines = unit.lineList, cov = this.cov(unit);
+    const isPhone = st.view === "phone";
+
+    const covs = {};
+    let fleetV = 0, fleetT = 0, fleetF = 0;
+    this.fleet.forEach(u => { const c = this.cov(u); covs[u.id] = c; fleetV += c.verified; fleetT += c.total; fleetF += c.flags; });
+
+    const groups = unit.subs.map(code => {
+      const s = this.SUBS[code], gl = lines.filter(l => l.sub === code);
+      let v = 0; gl.forEach(l => { if (this.rec(unit, l).status === "verified") v++; });
+      const pct = Math.round((v / gl.length) * 100);
+      const open = st.openGroups[code] !== undefined ? st.openGroups[code] : code === unit.subs[0];
+      return {
+        name: s.name, open, summary: v + "/" + gl.length,
+        caretStyle: `display:inline-flex;color:var(--color-neutral-600);transform:rotate(${open ? 90 : 0}deg);transition:transform .15s`,
+        barStyle: `width:${pct}%;height:100%;background:var(--color-accent)`,
+        onToggle: () => this.setState(s2 => ({ openGroups: Object.assign({}, s2.openGroups, { [code]: !open }) })),
+        lines: gl.map(l => {
+          const r = this.rec(unit, l), b = this.badge(r.status), on = st.sel === l.key;
+          return {
+            part: l.part, desc: l.desc, statusLabel: b.label,
+            rowStyle: `display:grid;grid-template-columns:12px 112px minmax(0,1fr) 90px;gap:var(--space-3);align-items:center;padding:7px var(--space-4) 7px var(--space-8);background:${on ? "var(--color-accent-100)" : "transparent"};box-shadow:${on ? "inset 2px 0 0 var(--color-accent)" : "none"}`,
+            dotStyle: `width:8px;height:8px;background:${b.dot};display:inline-block`,
+            onSelect: () => this.setState({ sel: l.key })
+          };
+        })
+      };
+    });
+
+    const selLine = lines.find(l => l.key === st.sel) || lines[0];
+    const sr = this.rec(unit, selLine), sb = this.badge(sr.status);
+
+    const step = Math.min(st.step, lines.length - 1), pl = lines[step], pr = this.rec(unit, pl), pb = this.badge(pr.status);
+    const advance = () => this.setState(s => ({ step: Math.min(s.step + 1, lines.length - 1), queue: s.queue + 1 }));
+
+    return {
+      syncLabel: st.queue > 0 ? st.queue + " queued · last sync 4m ago" : "all records synced",
+      isDesktop: !isPhone, isPhone,
+      goDesktop: () => this.setState({ view: "machine" }),
+      goPhone: () => this.setState({ view: "phone" }),
+      backToFleet: e => { e.preventDefault(); this.setState({ view: "fleet" }); },
+      showFleet: st.view === "fleet", showMachine: st.view === "machine", showPhone: isPhone,
+      summaryLine: this.DATA.length + " units · " + Math.round((fleetV / fleetT) * 100) + "% of component lines on record · " + fleetF + " flagged for engineering (duplicate serials included)",
+
+      rows: this.fleet.slice().sort((a, b) => covs[a.id].pct - covs[b.id].pct).map(u => {
+        const c = covs[u.id];
+        return {
+          unit: u.id, vin: u.vin, pct: c.pct + "%", lastAudit: u.lastAudit,
+          chips: u.subs.map(s => this.SUBS[s].name.replace("Vision — ", "V: ")),
+          barStyle: `width:${c.pct}%;height:100%;background:var(--color-accent)`,
+          flags: c.flags || "—",
+          flagStyle: `font-weight:700;font-variant-numeric:tabular-nums;color:${c.flags ? "var(--color-accent-800)" : "var(--color-neutral-400)"}`,
+          onOpen: () => this.setState({ view: "machine", unit: this.fleet.indexOf(u), sel: null, openGroups: {}, step: 0 })
+        };
+      }),
+
+      machineTitle: unit.id,
+      machineVin: unit.vin,
+      machineCoverage: cov.verified + "/" + cov.total,
+      lineCountLabel: lines.length + " lines · " + unit.subs.length + " subassemblies",
+      groups,
+
+      sel: {
+        part: selLine.part, desc: selLine.desc, statusLabel: sb.label, badgeCls: sb.cls,
+        photoLabel: sr.photo ? "field photo · " + selLine.part + ".jpg" : "no photo on record",
+        serial: sr.serial || "",
+        onSerial: e => this.setRec(unit, selLine, { serial: e.target.value }),
+        specShown: !!selLine.spec, spec: selLine.spec,
+        fields: [
+          { label: "Revision", value: "rev " + selLine.rev },
+          { label: "Location on unit", value: selLine.loc },
+          { label: "Subassembly", value: selLine.subName }
+        ],
+        note: sr.note || "No note recorded yet.",
+        onConfirm: () => this.setRec(unit, selLine, { status: "verified" }),
+        onFlag: () => this.setRec(unit, selLine, { status: "flagged", note: this.NOTES[1] })
+      },
+
+      queueLabel: st.queue + " records held locally — they push to GitHub and the OneDrive workbook on the next sync.",
+      phoneSubName: pl.subName,
+      phoneProgress: (step + 1) + " / " + lines.length,
+      phoneBarStyle: `width:${Math.round(((step + 1) / lines.length) * 100)}%;height:100%;background:var(--color-accent)`,
+      phonePart: pl.part, phoneDesc: pl.desc, phoneRev: pl.rev,
+      phoneSerial: pr.serial || "",
+      phoneOnSerial: e => this.setRec(unit, pl, { serial: e.target.value }),
+      phoneLocation: pl.loc, phoneStatusLabel: pb.label, phoneBadgeCls: pb.cls,
+      phonePhotoLabel: pr.photo ? "photo captured · " + pl.part + ".jpg" : "no photo yet",
+      phonePhotoAction: pr.photo ? "Retake photo" : "Take photo",
+      phoneTogglePhoto: () => this.setRec(unit, pl, { photo: !pr.photo }),
+      phoneNoteShown: pr.status === "flagged" || pr.status === "dup",
+      phoneNoteTitle: pr.status === "dup" ? "Duplicate serial — engineering review" : "Flagged for engineering",
+      phoneNote: pr.note || this.NOTES[1],
+      phoneConfirm: () => {
+        if ((this.props.requirePhoto ?? true) && !pr.photo) { this.setRec(unit, pl, { photo: true }); return; }
+        this.setRec(unit, pl, { status: "verified", note: this.NOTES[0] }); advance();
+      },
+      phoneFlag: () => this.setRec(unit, pl, { status: "flagged", note: this.NOTES[1] }),
+      phoneSkip: () => { this.setRec(unit, pl, { status: "absent", note: this.NOTES[2] }); advance(); },
+      phonePrev: () => this.setState(s => ({ step: Math.max(0, s.step - 1) })),
+      phoneQueue: st.queue + " queued",
+      phoneSync: () => this.setState({ queue: 0 })
+    };
+  }
+}
+</script>
+</body>
+</html>
