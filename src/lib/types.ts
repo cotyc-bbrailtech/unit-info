@@ -1,4 +1,16 @@
-export type SubCode = 'RG' | 'LD' | 'MG' | 'VT' | 'VG' | 'RB' | 'CV'
+/** The seven subassemblies that ship in src/data/subassemblies.ts. */
+export type BuiltInSubCode = 'RG' | 'LD' | 'MG' | 'VT' | 'VG' | 'RB' | 'CV'
+
+/**
+ * A subassembly's code. Not a closed union: an admin can create a subassembly,
+ * and the code they pick is what every audit record under it is keyed by. Use
+ * `BuiltInSubCode` where a literal from the shipped catalogue is genuinely
+ * meant — fitment defaults and the Vue licence mapping.
+ */
+export type SubCode = string
+
+/** Descriptive. Nothing is fitted or unfitted on the strength of it. */
+export type SubKind = 'common' | 'optional'
 
 export type Status = 'verified' | 'dup' | 'flagged' | 'absent' | 'open'
 
@@ -28,8 +40,15 @@ export interface PartSpec {
 
 export interface Subassembly {
   name: string
-  kind: 'common' | 'optional'
+  kind: SubKind
   parts: PartSpec[]
+}
+
+/** A subassembly resolved against the admin overrides. */
+export interface ResolvedSub extends Subassembly {
+  code: SubCode
+  /** True when the code ships in src/data/subassemblies.ts. */
+  builtIn: boolean
 }
 
 export interface Line extends PartSpec {

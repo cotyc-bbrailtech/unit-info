@@ -1,11 +1,14 @@
-import type { SubCode, Subassembly } from '../lib/types'
+import type { BuiltInSubCode, Subassembly } from '../lib/types'
 
 /**
  * Part numbers and descriptions below the top level are placeholders — replace
  * with the real parts lists before shipping. Only DMF-1650-F/R and SERCO-8500
  * are real.
+ *
+ * These seven are the shipped catalogue. Admins can add more at runtime; those
+ * live in the overrides layer, never here. See lib/overrides.ts.
  */
-export const SUBS: Record<SubCode, Subassembly> = {
+export const SUBS: Record<BuiltInSubCode, Subassembly> = {
   RG: {
     name: 'Rail Gear — DMF-1650',
     kind: 'common',
@@ -113,6 +116,12 @@ export const SUBS: Record<SubCode, Subassembly> = {
     ],
   },
 }
+
+/**
+ * Declaration order above — the order subassemblies are listed everywhere.
+ * Admin-created ones follow these, in the order they were created.
+ */
+export const BUILT_IN_CODES = Object.keys(SUBS) as BuiltInSubCode[]
 
 export const NOTES = {
   verified: 'Nameplate matched, no corrosion.',

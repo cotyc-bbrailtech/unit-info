@@ -1,6 +1,6 @@
 import { parseCsvRows } from './csv'
 import vueCsv from '../data/vue-licenses.csv?raw'
-import type { SubCode } from './types'
+import type { BuiltInSubCode } from './types'
 
 export type VueLicense = 'Tie Detection' | 'VGR premium' | 'VGR enterprise' | ''
 
@@ -37,7 +37,7 @@ export const VUE_UNITS: VueUnit[] = parseCsvRows(vueCsv).map((r) => ({
 }))
 
 /** The subassembly a licence tier corresponds to, if any. */
-export function subForLicense(license: VueLicense): SubCode | null {
+export function subForLicense(license: VueLicense): BuiltInSubCode | null {
   if (license === 'Tie Detection') return 'VT'
   if (license === 'VGR premium' || license === 'VGR enterprise') return 'VG'
   return null

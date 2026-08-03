@@ -2,12 +2,11 @@
  * Builds the master-data workbook. `buildMasterSheets` is pure and fully
  * testable without touching a byte of zip.
  */
-import { SUBS } from '../../data/subassemblies'
 import { VUE_UNITS, isOnMachine, locationOf } from '../vue'
-import { partId, partsFor } from '../overrides'
-import type { Overrides } from '../overrides'
+import { partId, partsFor, recordsFor, subCodes, subDef, subName, unitsWith } from '../overrides'
 import { recordKey } from '../records'
-import type { Records, SubCode, Unit } from '../types'
+import type { Overrides } from '../overrides'
+import type { Records, Unit } from '../types'
 import type { SheetSpec } from '../xlsx/write'
 import {
   APP_TAG,
@@ -17,8 +16,7 @@ import {
   SCHEMA_VERSION,
   SHEET,
   SUBASSEMBLIES_COLUMNS,
-  SUB_ORDER,
-  UNITS_COLUMNS,
+  unitsColumns,
   VARIANTS_COLUMNS,
   VUE_COLUMNS,
   FIT_MARK,
@@ -44,18 +42,13 @@ export interface ExportInput {
 
 export function buildMasterSheets(input: ExportInput): SheetSpec[] {
   const { fleet, overrides, records, exportedAt, appVersion } = input
-
-  const unitsWith = (code: SubCode) => fleet.filter((u) => u.subs.includes(code))
-  const recordsFor = (code: SubCode, id: string) =>
-    fleet.reduce(
-      (n, u) => n + (records[recordKey(u.id, `${code}:${id}`)] ? 1 : 0),
-      0,
-    )
+  const codes = subCodes(overrides)
 
   const partsRows: string[][] = []
   const variantRows: string[][] = []
-  for (const code of SUB_ORDER) {
-    const fitted = unitsWith(code).length
+  for (const code of codes) {
+    const fitted = unitsWith(code, fleet).length
+    const name = subName(code, overrides)
     for (const p of partsFor(code, overrides)) {
       const id = partId(p)
       partsRows.push([
@@ -67,9 +60,9 @@ export function buildMasterSheets(input: ExportInput): SheetSpec[] {
         p.loc,
         p.slot ?? '',
         p.spec ?? '',
-        SUBS[code].name,
+        name,
         String(fitted),
-        String(recordsFor(code, id)),
+        String(recordsFor(code, id, fleet, records)),
       ])
       for (const [rev, variant] of Object.entries(p.byRev ?? {})) {
         variantRows.push([code, id, rev, variant, p.part])
@@ -77,13 +70,16 @@ export function buildMasterSheets(input: ExportInput): SheetSpec[] {
     }
   }
 
-  const subRows = SUB_ORDER.map((code) => [
-    code,
-    SUBS[code].name,
-    SUBS[code].kind,
-    String(partsFor(code, overrides).length),
-    String(unitsWith(code).length),
-  ])
+  const subRows = codes.map((code) => {
+    const s = subDef(code, overrides)
+    return [
+      code,
+      s.name,
+      s.kind,
+      String(s.parts.length),
+      String(unitsWith(code, fleet).length),
+    ]
+  })
 
   const unitRows = fleet.map((u) => [
     u.id,
@@ -91,7 +87,7 @@ export function buildMasterSheets(input: ExportInput): SheetSpec[] {
     u.serials.front,
     u.serials.rear,
     u.serials.loader,
-    ...SUB_ORDER.map((code) => (u.subs.includes(code) ? FIT_MARK : '')),
+    ...codes.map((code) => (u.subs.includes(code) ? FIT_MARK : '')),
     u.serials.vue,
     u.vueRev ?? '',
     String(u.lines.length),
@@ -140,7 +136,7 @@ export function buildMasterSheets(input: ExportInput): SheetSpec[] {
     [
       'identity_columns',
       'unit_id, sub_code, part_id',
-      'Never edit these. part_id is what audit records are keyed to, so changing it detaches every serial and note already captured against that part. Change part_number instead — that is the human-facing number and is safe to edit.',
+      'Never edit these. part_id is what audit records are keyed to, so changing it detaches every serial and note already captured against that part. Change part_number instead — that is the human-facing number and is safe to edit. sub_code is part of every record key too, so changing a subassembly code detaches everything captured under it — edit its name instead.',
     ],
     [
       'read_only_sheets',
@@ -154,8 +150,13 @@ export function buildMasterSheets(input: ExportInput): SheetSpec[] {
     ],
     [
       'editable',
-      'sheets 2, 3 and 4',
-      '2 Parts (the master parts lists), 3 Part Variants (revision-dependent parts), 4 Units (VIN, imported serials, and which subassemblies each machine carries).',
+      'sheets 1, 2, 3 and 4',
+      '1 Subassemblies (which subassemblies exist, and their names), 2 Parts (the master parts lists), 3 Part Variants (revision-dependent parts), 4 Units (VIN, imported serials, and which subassemblies each machine carries).',
+    ],
+    [
+      'how_to_add_a_subassembly',
+      `add a row on "${SHEET.subassemblies}"`,
+      'Give it a code of 2 to 4 characters starting with a letter, a name, and kind common or optional. Add its parts on "2 Parts" with the same sub_code. The fit_ column for marking machines appears on "4 Units" the next time you export.',
     ],
     [
       'how_to_add_a_part',
@@ -167,7 +168,7 @@ export function buildMasterSheets(input: ExportInput): SheetSpec[] {
       'delete the row on "2 Parts"',
       'Audit records already captured against it are left in place, inert, and return if the part_id ever comes back.',
     ],
-    ['subassembly_count', String(SUB_ORDER.length), ''],
+    ['subassembly_count', String(codes.length), ''],
     ['part_count', String(partsRows.length), 'A count for orientation; the sheets themselves are what import reads.'],
     ['unit_count', String(fleet.length), ''],
   ]
@@ -177,7 +178,7 @@ export function buildMasterSheets(input: ExportInput): SheetSpec[] {
     sheet(SHEET.subassemblies, SUBASSEMBLIES_COLUMNS, subRows),
     sheet(SHEET.parts, PARTS_COLUMNS, partsRows),
     sheet(SHEET.variants, VARIANTS_COLUMNS, variantRows),
-    sheet(SHEET.units, UNITS_COLUMNS, unitRows),
+    sheet(SHEET.units, unitsColumns(codes), unitRows),
     sheet(SHEET.lines, LINES_COLUMNS, lineRows),
     sheet(SHEET.vue, VUE_COLUMNS, vueRows),
   ]

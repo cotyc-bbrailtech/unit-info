@@ -1,5 +1,5 @@
-import { SUBS } from '../data/subassemblies'
 import { unitNumber } from '../lib/fleet'
+import { subName } from '../lib/overrides'
 import type { FleetResolution } from '../lib/records'
 import type { Unit } from '../lib/types'
 import { useStore } from '../store/useStore'
@@ -14,6 +14,8 @@ export function FleetView({
 }) {
   const openUnit = useStore((s) => s.openUnit)
   const setView = useStore((s) => s.setView)
+  const admin = useStore((s) => s.admin)
+  const overrides = useStore((s) => s.overrides)
   const { coverage, fleet } = resolution
 
   const rows = [...units].sort((a, b) => unitNumber(a.id) - unitNumber(b.id))
@@ -28,9 +30,17 @@ export function FleetView({
             for engineering (duplicate serials included)
           </p>
         </div>
-        <button className="btn btn-secondary" onClick={() => setView('vue')}>
-          Vue licences
-        </button>
+        <div className="head-actions">
+          <button className="btn btn-secondary" onClick={() => setView('vue')}>
+            Vue licences
+          </button>
+          {admin && (
+            <button className="btn btn-secondary admin-chip" onClick={() => setView('subs')}>
+              <span className="admin-dot" />
+              Subassemblies
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="blueprint frame">
@@ -59,7 +69,7 @@ export function FleetView({
                     <div className="chip-row">
                       {unit.subs.map((code) => (
                         <span key={code} className="tag tag-neutral">
-                          {SUBS[code].name.replace('Vision — ', 'V: ')}
+                          {subName(code, overrides).replace('Vision — ', 'V: ')}
                         </span>
                       ))}
                     </div>

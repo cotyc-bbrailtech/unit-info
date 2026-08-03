@@ -52,7 +52,10 @@ export function resolveFleet(fleet: Unit[], records: Records): FleetResolution {
       else if (rec.status === 'flagged' || rec.status === 'dup') flags++
     }
     const total = unit.lines.length
-    coverage.set(unit.id, { total, verified, flags, pct: Math.round((verified / total) * 100) })
+    // A machine can have no lines — every subassembly struck off, or one fitted
+    // that has no parts yet. 0/0 would render as NaN% in the fleet table.
+    const pct = total ? Math.round((verified / total) * 100) : 0
+    coverage.set(unit.id, { total, verified, flags, pct })
     fleetVerified += verified
     fleetTotal += total
     fleetFlags += flags

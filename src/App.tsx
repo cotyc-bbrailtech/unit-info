@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { AuditView } from './components/AuditView'
 import { FleetView } from './components/FleetView'
 import { TopBar } from './components/TopBar'
+import { SubsView } from './components/SubsView'
 import { UnitView } from './components/UnitView'
 import { VueView } from './components/VueView'
 import { buildFleet } from './lib/fleet'
@@ -25,7 +26,8 @@ export default function App() {
       <TopBar />
       {view === 'fleet' && <FleetView fleet={fleet} resolution={resolution} />}
       {view === 'vue' && <VueView />}
-      {view === 'machine' && <UnitView unit={unit} fleet={fleet} resolution={resolution} />}
+      {view === 'subs' && <SubsView fleet={fleet} />}
+      {view === 'machine' && <UnitView unit={unit} resolution={resolution} />}
       {view === 'phone' && <AuditView unit={unit} resolution={resolution} />}
     </div>
   )

@@ -9,9 +9,18 @@
  */
 import { SUBS } from '../../data/subassemblies'
 import { defaultSubs } from '../fleet'
-import { blankPart, partId, partsFor } from '../overrides'
-import type { Overrides, UnitOverride } from '../overrides'
-import type { PartSpec, Records, SerialSlot, SubCode, Unit } from '../types'
+import {
+  blankPart,
+  normaliseSubCode,
+  partId,
+  partsFor,
+  SUB_CODE_RE,
+  subCodes,
+  subExists,
+  subName,
+} from '../overrides'
+import type { Overrides, SubOverride, UnitOverride } from '../overrides'
+import type { PartSpec, Records, SerialSlot, SubCode, SubKind, Subassembly, Unit } from '../types'
 import { recordKey } from '../records'
 import type { Workbook } from '../xlsx/read'
 import {
@@ -23,8 +32,11 @@ import {
   SCHEMA_VERSION,
   SERIAL_SLOTS,
   SHEET,
-  SUB_ORDER,
-  UNITS_COLUMNS,
+  SUBASSEMBLIES_COLUMNS,
+  SUB_KINDS,
+  unitsColumns,
+  fitCode,
+  fitHeader,
   VARIANTS_COLUMNS,
 } from './schema'
 
@@ -46,6 +58,8 @@ export interface ImportPlan {
     parts: number
     partsBefore: number
     subsChanged: SubCode[]
+    subsAdded: SubCode[]
+    subsRemoved: SubCode[]
     unitsChanged: string[]
     fitmentChanged: number
     strandedRecords: number
@@ -58,8 +72,6 @@ export interface ImportContext {
   records: Records
 }
 
-const KNOWN_SUBS = new Set<string>(SUB_ORDER)
-
 export function validateWorkbook(wb: Workbook, ctx: ImportContext): ImportPlan {
   const errors: Issue[] = []
   const warnings: Issue[] = []
@@ -67,12 +79,14 @@ export function validateWorkbook(wb: Workbook, ctx: ImportContext): ImportPlan {
     ok: false,
     errors,
     warnings,
-    overrides: { parts: {}, units: {} },
+    overrides: { subs: {}, units: {} },
     confirm: '',
     summary: {
       parts: 0,
       partsBefore: 0,
       subsChanged: [],
+      subsAdded: [],
+      subsRemoved: [],
       unitsChanged: [],
       fitmentChanged: 0,
       strandedRecords: 0,
@@ -110,9 +124,11 @@ export function validateWorkbook(wb: Workbook, ctx: ImportContext): ImportPlan {
 
   // ── Gate 2: required sheets and columns ───────────────────────────────────
   const need = [
+    { name: SHEET.subassemblies, columns: SUBASSEMBLIES_COLUMNS },
     { name: SHEET.parts, columns: PARTS_COLUMNS },
     { name: SHEET.variants, columns: VARIANTS_COLUMNS },
-    { name: SHEET.units, columns: UNITS_COLUMNS },
+    // The fit_ columns are dynamic, so only the fixed ones are required here.
+    { name: SHEET.units, columns: unitsColumns([]) },
   ]
   const heads = new Map<string, Map<string, number>>()
   for (const n of need) {
@@ -137,11 +153,88 @@ export function validateWorkbook(wb: Workbook, ctx: ImportContext): ImportPlan {
   }
   if (errors.length) return empty
 
-  // ── Gate 3: parts ─────────────────────────────────────────────────────────
-  const partsRows = wb.get(SHEET.parts)!.slice(1)
-  const pIdx = heads.get(SHEET.parts)!
   const cell = (row: string[], idx: Map<string, number>, header: string) =>
     (row[idx.get(header) ?? -1] ?? '').trim()
+
+  // ── Gate 3: the subassemblies themselves ──────────────────────────────────
+  // This sheet is the authority for what exists, so it validates before parts,
+  // variants and the fit_ columns, all of which cross-check against it.
+  const sIdx = heads.get(SHEET.subassemblies)!
+  const declared: { code: SubCode; name: string; kind: SubKind }[] = []
+  const declaredAt = new Map<SubCode, number>()
+
+  wb.get(SHEET.subassemblies)!
+    .slice(1)
+    .forEach((row, i) => {
+      const where = `${SHEET.subassemblies} row ${i + 2}`
+      if (row.every((c) => !c.trim())) return
+
+      const raw = cell(row, sIdx, 'sub_code')
+      const code = normaliseSubCode(raw)
+      if (!code) {
+        errors.push({
+          code: 'E-SUB-CODE-BLANK',
+          message: `${where}: sub_code is blank. Every subassembly needs a short code — delete the row if you did not mean to add one.`,
+          where,
+        })
+        return
+      }
+      if (!SUB_CODE_RE.test(code)) {
+        errors.push({
+          code: 'E-SUB-CODE-INVALID',
+          message: `${where}: sub_code "${raw}" is not a valid code. Use 2 to 4 letters or digits starting with a letter, like "RG" or "HYD1" — the code becomes a column header and part of every audit record.`,
+          where,
+        })
+        return
+      }
+      const seenAt = declaredAt.get(code)
+      if (seenAt !== undefined) {
+        errors.push({
+          code: 'E-SUB-DUPLICATE',
+          message: `${where}: sub_code "${code}" is already used on row ${seenAt}. Each subassembly needs its own code.`,
+          where,
+        })
+        return
+      }
+
+      const name = cell(row, sIdx, 'name')
+      if (!name) {
+        errors.push({
+          code: 'E-SUB-NAME-BLANK',
+          message: `${where}: ${code} has no name. Give it the name that should appear above its parts on a machine.`,
+          where,
+        })
+        return
+      }
+
+      const kindRaw = cell(row, sIdx, 'kind').toLowerCase()
+      if (kindRaw && !(SUB_KINDS as readonly string[]).includes(kindRaw)) {
+        errors.push({
+          code: 'E-SUB-KIND-UNKNOWN',
+          message: `${where}: kind "${cell(row, sIdx, 'kind')}" is not "common" or "optional". Leave it blank for optional.`,
+          where,
+        })
+        return
+      }
+
+      declaredAt.set(code, i + 2)
+      declared.push({ code, name, kind: (kindRaw || 'optional') as SubKind })
+    })
+
+  if (!declared.length && !errors.length) {
+    errors.push({
+      code: 'E-SUB-NONE',
+      message: `"${SHEET.subassemblies}" has no rows. That sheet is what says which subassemblies exist, so an empty one would erase every parts list — add a row, or import a fresh export.`,
+      where: SHEET.subassemblies,
+    })
+  }
+  if (errors.length) return empty
+
+  const declaredCodes = new Set(declared.map((d) => d.code))
+
+  // ── Gate 4: parts ─────────────────────────────────────────────────────────
+  const partsRows = wb.get(SHEET.parts)!.slice(1)
+  const pIdx = heads.get(SHEET.parts)!
 
   const byCode = new Map<SubCode, PartSpec[]>()
   const seenIds = new Map<string, Set<string>>()
@@ -151,16 +244,18 @@ export function validateWorkbook(wb: Workbook, ctx: ImportContext): ImportPlan {
     const where = `${SHEET.parts} row ${i + 2}`
     if (row.every((c) => !c.trim())) return
 
-    const code = cell(row, pIdx, 'sub_code')
-    if (!KNOWN_SUBS.has(code)) {
+    const code = normaliseSubCode(cell(row, pIdx, 'sub_code'))
+    if (!declaredCodes.has(code)) {
       errors.push({
         code: 'E-SUB-UNKNOWN',
-        message: `${where}: sub_code "${code}" is not one of ${SUB_ORDER.join(', ')}.`,
+        message: code
+          ? `${where}: sub_code "${code}" is not declared on "${SHEET.subassemblies}". Add a row for it there first, or correct the code.`
+          : `${where}: sub_code is blank. Every part belongs to a subassembly — set it to a code from "${SHEET.subassemblies}".`,
         where,
       })
       return
     }
-    const sub = code as SubCode
+    const sub = code
 
     const number = cell(row, pIdx, 'part_number')
     let id = cell(row, pIdx, 'part_id')
@@ -215,22 +310,26 @@ export function validateWorkbook(wb: Workbook, ctx: ImportContext): ImportPlan {
     byCode.set(sub, list)
   })
 
-  // ── Gate 4: variants ──────────────────────────────────────────────────────
+  // ── Gate 5: variants ──────────────────────────────────────────────────────
   const vIdx = heads.get(SHEET.variants)!
   wb.get(SHEET.variants)!
     .slice(1)
     .forEach((row, i) => {
       const where = `${SHEET.variants} row ${i + 2}`
       if (row.every((c) => !c.trim())) return
-      const code = cell(row, vIdx, 'sub_code')
+      const code = normaliseSubCode(cell(row, vIdx, 'sub_code'))
       const id = cell(row, vIdx, 'part_id')
       const rev = cell(row, vIdx, 'vue_rev')
       const variant = cell(row, vIdx, 'variant')
-      if (!KNOWN_SUBS.has(code)) {
-        errors.push({ code: 'E-SUB-UNKNOWN', message: `${where}: sub_code "${code}" is not a known subassembly.`, where })
+      if (!declaredCodes.has(code)) {
+        errors.push({
+          code: 'E-SUB-UNKNOWN',
+          message: `${where}: sub_code "${code}" is not declared on "${SHEET.subassemblies}".`,
+          where,
+        })
         return
       }
-      const target = byCode.get(code as SubCode)?.find((p) => partId(p) === id)
+      const target = byCode.get(code)?.find((p) => partId(p) === id)
       if (!target) {
         errors.push({
           code: 'E-VARIANT-ORPHAN',
@@ -246,13 +345,65 @@ export function validateWorkbook(wb: Workbook, ctx: ImportContext): ImportPlan {
       target.byRev = { ...target.byRev, [rev]: variant }
     })
 
-  // ── Gate 5: units and the fixed roster ────────────────────────────────────
+  // ── Gate 6: units and the fixed roster ────────────────────────────────────
   const uIdx = heads.get(SHEET.units)!
   const unitRows = wb.get(SHEET.units)!.slice(1).filter((r) => r.some((c) => c.trim()))
   const roster = new Map(ctx.fleet.map((u) => [u.id, u]))
   const seenUnits = new Set<string>()
   const unitOverrides: Record<string, UnitOverride> = {}
   let fitmentChanged = 0
+
+  // The fit_ block is dynamic. Scan the header row directly rather than through
+  // headerIndex, so a duplicated column stays visible instead of being deduped.
+  const fitAt = new Map<SubCode, number>()
+  wb.get(SHEET.units)![0].forEach((h, i) => {
+    const code = fitCode(h)
+    if (code === null) return
+    if (!code || !declaredCodes.has(code)) {
+      errors.push({
+        code: 'E-FIT-COLUMN-UNKNOWN',
+        message: code
+          ? `"${SHEET.units}" has a column "${fitHeader(code)}" but "${code}" is not declared on "${SHEET.subassemblies}". Add a row for it there, or delete the column.`
+          : `"${SHEET.units}" has a column named "fit_" with no subassembly code after it. Name it fit_ plus a code from "${SHEET.subassemblies}", or delete it.`,
+        where: `${SHEET.units} column ${i + 1}`,
+      })
+      return
+    }
+    if (fitAt.has(code)) {
+      errors.push({
+        code: 'E-FIT-COLUMN-DUPLICATE',
+        message: `"${SHEET.units}" has more than one ${fitHeader(code)} column. Delete the extra one — with two there is no telling which marks are current.`,
+        where: `${SHEET.units} column ${i + 1}`,
+      })
+      return
+    }
+    fitAt.set(code, i)
+  })
+
+  // A declared subassembly with no column: rejected when machines carry it
+  // today (deleting the column would strike it off all of them silently),
+  // tolerated when none do — that is the "just created it" case.
+  for (const d of declared) {
+    if (fitAt.has(d.code)) continue
+    const carrying = ctx.fleet.filter((u) => u.subs.includes(d.code)).length
+    if (carrying) {
+      errors.push({
+        code: 'E-FIT-COLUMN-MISSING',
+        message: `"${SHEET.units}" has no ${fitHeader(d.code)} column, but ${carrying} machine${carrying > 1 ? 's' : ''} carr${carrying > 1 ? 'y' : 'ies'} ${d.name} today. Deleting the column would strike it off every one of them silently, so the import is rejected instead. Put the column back, or empty its cells if you do mean to unfit them all.`,
+        where: SHEET.units,
+      })
+    } else {
+      warnings.push({
+        code: 'W-FIT-COLUMN-MISSING',
+        message: `${d.name} (${d.code}) has no ${fitHeader(d.code)} column on "${SHEET.units}", so no machine is fitted with it. Import this file, export a fresh one, and the column will be there to mark.`,
+        where: SHEET.units,
+      })
+    }
+  }
+  if (errors.length) return empty
+
+  // One warning per subassembly, not per machine.
+  const warnedEmpty = new Set<SubCode>()
 
   unitRows.forEach((row, i) => {
     const where = `${SHEET.units} row ${i + 2}`
@@ -272,19 +423,24 @@ export function validateWorkbook(wb: Workbook, ctx: ImportContext): ImportPlan {
     }
     seenUnits.add(id)
 
-    const subs = SUB_ORDER.filter((code) => isFitted(cell(row, uIdx, `fit_${code}`)))
+    // Built in declared order, so sheet-4 column order cannot reach unit.subs.
+    const subs = declared
+      .map((d) => d.code)
+      .filter((code) => isFitted(row[fitAt.get(code) ?? -1] ?? ''))
+
     for (const code of subs) {
-      if (!byCode.has(code) && !partsFor(code, { parts: {}, units: {} }).length) {
+      if (!byCode.get(code)?.length && !warnedEmpty.has(code)) {
+        warnedEmpty.add(code)
         warnings.push({
           code: 'W-FIT-EMPTY',
-          message: `${where}: ${id} is fitted with ${code}, which has no parts in this file. It will show as an empty subassembly.`,
-          where,
+          message: `${subName(code, ctx.overrides)} (${code}) has no parts in this file, but machines are fitted with it. It will show as an empty subassembly.`,
+          where: SHEET.units,
         })
       }
     }
 
     const base = defaultSubs(id)
-    const sameFitment = subs.length === base.length && subs.every((c, k) => c === base[k])
+    const sameFitment = subs.length === base.length && base.every((c) => subs.includes(c))
     if (!sameFitment) fitmentChanged++
 
     const o: UnitOverride = {}
@@ -316,41 +472,79 @@ export function validateWorkbook(wb: Workbook, ctx: ImportContext): ImportPlan {
 
   if (errors.length) return empty
 
-  // ── Build the parts overrides, again as a minimal diff ────────────────────
-  const parts: Partial<Record<SubCode, PartSpec[]>> = {}
+  // ── Build the overrides, as a minimal diff from the built-in baseline ─────
+  // Anything the workbook did not actually change gets no override, so it keeps
+  // tracking subassemblies.ts rather than freezing at today's value.
+  const subs: Record<SubCode, SubOverride> = {}
   const subsChanged: SubCode[] = []
-  for (const code of SUB_ORDER) {
-    const incoming = byCode.get(code) ?? []
-    if (!samePartList(incoming, SUBS[code].parts)) {
-      parts[code] = incoming
-      subsChanged.push(code)
+  const baseline = (code: SubCode) => (SUBS as Record<string, Subassembly | undefined>)[code]
+
+  for (const d of declared) {
+    const b = baseline(d.code)
+    const incoming = byCode.get(d.code) ?? []
+    const o: SubOverride = {}
+
+    if (d.name !== b?.name) o.name = d.name
+    if (d.kind !== (b?.kind ?? 'optional')) o.kind = d.kind
+    if (!samePartList(incoming, b?.parts ?? [])) {
+      o.parts = incoming
+      subsChanged.push(d.code)
     }
-    if (!incoming.length && SUBS[code].parts.length) {
-      warnings.push({
-        code: 'W-SUB-EMPTIED',
-        message: `${SUBS[code].name} has no parts left in this file. Every machine carrying it will show an empty subassembly.`,
-      })
+    if (Object.keys(o).length) subs[d.code] = o
+
+    if (!incoming.length) {
+      warnings.push(
+        b?.parts.length
+          ? {
+              code: 'W-SUB-EMPTIED',
+              message: `${d.name} has no parts left in this file. Every machine carrying it will show an empty subassembly.`,
+              where: `${SHEET.parts}:${d.code}`,
+            }
+          : {
+              code: 'W-SUB-EMPTY',
+              message: `${d.name} (${d.code}) has no parts on "${SHEET.parts}". It will show as an empty subassembly on every machine fitted with it.`,
+              where: `${SHEET.parts}:${d.code}`,
+            },
+      )
     }
   }
+
+  // A subassembly the workbook drops entirely. Permitted — a file that lacks a
+  // row cannot be told from one that never had it — but never quiet about it.
+  const subsAdded = declared.filter((d) => !subExists(d.code, ctx.overrides)).map((d) => d.code)
+  const subsRemoved = subCodes(ctx.overrides).filter((c) => !declaredCodes.has(c))
+  for (const code of subsRemoved) {
+    const n = ctx.fleet.filter((u) => u.subs.includes(code)).length
+    const p = partsFor(code, ctx.overrides).length
+    warnings.push({
+      code: 'W-SUB-DROPPED',
+      message: `${subName(code, ctx.overrides)} (${code}) is not on "${SHEET.subassemblies}" in this file, so it is removed: ${n} machine${n === 1 ? '' : 's'} lose it and ${p} part${p === 1 ? '' : 's'} go with it.`,
+      where: `${SHEET.subassemblies}:${code}`,
+    })
+  }
+
+  const nextOverrides: Overrides = { subs, units: unitOverrides }
 
   // Records pointing at part ids the workbook drops. They stay in storage,
   // inert, and come back if the id ever returns — but say so out loud.
   let strandedRecords = 0
   for (const unit of ctx.fleet) {
-    const subs = unitOverrides[unit.id]?.subs ?? defaultSubs(unit.id)
+    const fitted = unitOverrides[unit.id]?.subs ?? defaultSubs(unit.id)
     const live = new Set(
-      subs.flatMap((code) => {
-        const list = parts[code] ?? SUBS[code].parts
-        return list.map((p) => recordKey(unit.id, `${code}:${partId(p)}`))
-      }),
+      fitted.flatMap((code) =>
+        partsFor(code, nextOverrides).map((p) => recordKey(unit.id, `${code}:${partId(p)}`)),
+      ),
     )
     for (const key of Object.keys(ctx.records)) {
       if (key.startsWith(`${unit.id}|`) && !live.has(key)) strandedRecords++
     }
   }
 
-  const partsBefore = SUB_ORDER.reduce((n, c) => n + partsFor(c, ctx.overrides).length, 0)
-  const total = SUB_ORDER.reduce((n, c) => n + (parts[c] ?? SUBS[c].parts).length, 0)
+  const partsBefore = subCodes(ctx.overrides).reduce(
+    (n, c) => n + partsFor(c, ctx.overrides).length,
+    0,
+  )
+  const total = declared.reduce((n, d) => n + partsFor(d.code, nextOverrides).length, 0)
 
   if (fitmentChanged > ctx.fleet.length / 2) {
     warnings.push({
@@ -369,6 +563,8 @@ export function validateWorkbook(wb: Workbook, ctx: ImportContext): ImportPlan {
     parts: total,
     partsBefore,
     subsChanged,
+    subsAdded,
+    subsRemoved,
     unitsChanged: Object.keys(unitOverrides),
     fitmentChanged,
     strandedRecords,
@@ -378,7 +574,7 @@ export function validateWorkbook(wb: Workbook, ctx: ImportContext): ImportPlan {
     ok: true,
     errors,
     warnings,
-    overrides: { parts, units: unitOverrides },
+    overrides: nextOverrides,
     confirm: '',
     summary,
   }
@@ -406,11 +602,17 @@ function samePartList(a: PartSpec[], b: PartSpec[]): boolean {
 /** The plain-English line an admin confirms before anything is written. */
 export function confirmText(plan: ImportPlan, fleetSize: number): string {
   const s = plan.summary
+  const moved: string[] = []
+  if (s.subsAdded.length) moved.push(`${s.subsAdded.length} added (${s.subsAdded.join(', ')})`)
+  if (s.subsRemoved.length)
+    moved.push(`${s.subsRemoved.length} removed (${s.subsRemoved.join(', ')})`)
+
   const bits = [
     `Replace all master data: ${s.partsBefore} parts become ${s.parts}`,
+    ...(moved.length ? [`subassemblies ${moved.join(', ')}`] : []),
     s.subsChanged.length
-      ? `${s.subsChanged.length} subassembl${s.subsChanged.length > 1 ? 'ies' : 'y'} changed (${s.subsChanged.join(', ')})`
-      : 'no subassembly changed',
+      ? `${s.subsChanged.length} parts list${s.subsChanged.length > 1 ? 's' : ''} changed (${s.subsChanged.join(', ')})`
+      : 'no parts list changed',
     s.unitsChanged.length
       ? `${s.unitsChanged.length} of ${fleetSize} machines changed`
       : 'no machine changed',

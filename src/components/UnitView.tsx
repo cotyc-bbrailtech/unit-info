@@ -1,5 +1,5 @@
-import { NOTES, SUBS } from '../data/subassemblies'
-import { partId, partsFor } from '../lib/overrides'
+import { NOTES } from '../data/subassemblies'
+import { partId, partsFor, subCodes, subName } from '../lib/overrides'
 import { recordKey, serialOf } from '../lib/records'
 import type { FleetResolution } from '../lib/records'
 import { badge } from '../lib/status'
@@ -9,25 +9,13 @@ import type {
   RecordEntry,
   Records,
   ResolvedRecord,
-  SubCode,
   Unit,
 } from '../lib/types'
 import { isGroupOpen, useStore } from '../store/useStore'
 import { Corners } from './Corners'
 import { ArrowLeft, Check, ChevronRight } from './Icons'
-import { MasterDataPanel } from './MasterDataPanel'
 
-const ALL_SUBS = Object.keys(SUBS) as SubCode[]
-
-export function UnitView({
-  unit,
-  fleet,
-  resolution,
-}: {
-  unit: Unit
-  fleet: Unit[]
-  resolution: FleetResolution
-}) {
+export function UnitView({ unit, resolution }: { unit: Unit; resolution: FleetResolution }) {
   const { resolved, coverage } = resolution
   const sel = useStore((s) => s.sel)
   const openGroups = useStore((s) => s.openGroups)
@@ -72,12 +60,7 @@ export function UnitView({
         </button>
       </div>
 
-      {admin && (
-        <>
-          <AdminUnitPanel unit={unit} />
-          <MasterDataPanel fleet={fleet} />
-        </>
-      )}
+      {admin && <AdminUnitPanel unit={unit} />}
 
       <div className="two-col">
         <div className="blueprint line-panel">
@@ -98,7 +81,7 @@ export function UnitView({
                   <span className={open ? 'caret is-open' : 'caret'}>
                     <ChevronRight />
                   </span>
-                  <span className="group-name">{SUBS[code].name}</span>
+                  <span className="group-name">{subName(code, overrides)}</span>
                   <span className="group-spacer" />
                   {admin && (
                     <span className="group-admin" onClick={(e) => e.stopPropagation()}>
@@ -211,7 +194,7 @@ function DetailPanel({
           <Corners />
           <div className="admin-block-title">Edit part · master list</div>
           <div className="admin-note text-muted">
-            Applies to every machine carrying {SUBS[line.sub].name}.
+            Applies to every machine carrying {line.subName}.
           </div>
           <div className="field">
             <label htmlFor="ap-part">Part number</label>
@@ -258,7 +241,7 @@ function DetailPanel({
             </div>
           )}
           <button className="btn btn-secondary btn-block" onClick={() => removePart(line.sub, pid)}>
-            Remove part from {SUBS[line.sub].name}
+            Remove part from {line.subName}
           </button>
         </div>
       )}
@@ -319,7 +302,8 @@ function DetailPanel({
 function AdminUnitPanel({ unit }: { unit: Unit }) {
   const editUnit = useStore((s) => s.editUnit)
   const fitSub = useStore((s) => s.fitSub)
-  const unfitted = ALL_SUBS.filter((c) => !unit.subs.includes(c))
+  const overrides = useStore((s) => s.overrides)
+  const unfitted = subCodes(overrides).filter((c) => !unit.subs.includes(c))
 
   return (
     <div className="admin-block blueprint admin-unit">
@@ -373,7 +357,7 @@ function AdminUnitPanel({ unit }: { unit: Unit }) {
                 className="btn btn-secondary btn-tiny"
                 onClick={() => fitSub(unit.id, code)}
               >
-                + {SUBS[code].name}
+                + {subName(code, overrides)}
               </button>
             ))}
           </div>

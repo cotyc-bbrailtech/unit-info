@@ -5,15 +5,28 @@ import { recordKey } from '../lib/records'
 import {
   blankPart,
   EMPTY_OVERRIDES,
+  migrateOverrides,
   nextPartId,
+  normaliseSubCode,
   partId,
   partsFor,
+  subCodeError,
+  subNameError,
   withIds,
 } from '../lib/overrides'
-import type { Overrides } from '../lib/overrides'
-import type { Line, PartSpec, RecordEntry, Records, SerialSlot, SubCode, Unit } from '../lib/types'
+import type { Overrides, SubOverride } from '../lib/overrides'
+import type {
+  Line,
+  PartSpec,
+  RecordEntry,
+  Records,
+  SerialSlot,
+  SubCode,
+  SubKind,
+  Unit,
+} from '../lib/types'
 
-export type View = 'fleet' | 'machine' | 'phone' | 'vue'
+export type View = 'fleet' | 'machine' | 'phone' | 'vue' | 'subs'
 
 /**
  * Not a security control. The app is a static public bundle with no server, so
@@ -21,6 +34,13 @@ export type View = 'fleet' | 'machine' | 'phone' | 'vue'
  * auditor changing the master parts list by accident, nothing more — see README.
  */
 export const ADMIN_PIN = '4471'
+
+/**
+ * Bumped when the persisted shape changes. v1 folded the old `overrides.parts`
+ * map into `overrides.subs`, so a subassembly's name, kind and parts live in
+ * one record. Records and the sync queue are untouched by that migration.
+ */
+export const PERSIST_VERSION = 1
 
 interface State {
   view: View
@@ -56,6 +76,18 @@ interface State {
   editUnit: (unitId: string, patch: { vin?: string; serials?: Partial<Record<SerialSlot, string>> }) => void
   resetOverrides: () => void
   applyMasterData: (overrides: Overrides) => void
+
+  createSub: (code: SubCode, name: string, kind: SubKind) => boolean
+  renameSub: (code: SubCode, name: string) => void
+  setSubKind: (code: SubCode, kind: SubKind) => void
+  /** Drops a built-in's override so it tracks src/data/subassemblies.ts again. */
+  revertSub: (code: SubCode) => void
+  movePart: (code: SubCode, id: string, delta: -1 | 1) => void
+  setVariant: (code: SubCode, id: string, rev: string, variant: string | null) => void
+}
+
+function withSub(o: Overrides, code: SubCode, fn: (s: SubOverride) => SubOverride): Overrides {
+  return { ...o, subs: { ...o.subs, [code]: fn(o.subs?.[code] ?? {}) } }
 }
 
 /** Rewrites one subassembly's parts list, materialising ids on first edit. */
@@ -64,8 +96,7 @@ function withParts(
   code: SubCode,
   fn: (parts: PartSpec[]) => PartSpec[],
 ): Overrides {
-  const current = o.parts[code] ?? withIds(partsFor(code, o))
-  return { ...o, parts: { ...o.parts, [code]: fn(current) } }
+  return withSub(o, code, (s) => ({ ...s, parts: fn(s.parts ?? withIds(partsFor(code, o))) }))
 }
 
 function withUnit(o: Overrides, unitId: string, patch: Partial<Overrides['units'][string]>): Overrides {
@@ -124,7 +155,8 @@ export const useStore = create<State>()(
         if (ok) set({ admin: true })
         return ok
       },
-      lock: () => set({ admin: false }),
+      // The subassembly page only exists while unlocked, so locking must leave it.
+      lock: () => set((s) => ({ admin: false, view: s.view === 'subs' ? 'fleet' : s.view })),
 
       editPart: (code, id, patch) =>
         set((s) => ({
@@ -181,8 +213,63 @@ export const useStore = create<State>()(
       // if the id comes back. Selection is cleared because the line it pointed
       // at may no longer exist.
       applyMasterData: (overrides) => set({ overrides, sel: null, openGroups: {}, step: 0 }),
+
+      createSub: (code, name, kind) => {
+        const c = normaliseSubCode(code)
+        if (subCodeError(c, get().overrides) || subNameError(name)) return false
+        set((s) => ({
+          overrides: withSub(s.overrides, c, () => ({ name: name.trim(), kind, parts: [] })),
+        }))
+        return true
+      },
+      // Name and kind only. The code is identity — every audit record under this
+      // subassembly is keyed by it, so changing it would detach all of them.
+      renameSub: (code, name) => set((s) => ({ overrides: withSub(s.overrides, code, (x) => ({ ...x, name })) })),
+      setSubKind: (code, kind) =>
+        set((s) => ({ overrides: withSub(s.overrides, code, (x) => ({ ...x, kind })) })),
+      revertSub: (code) =>
+        set((s) => {
+          const subs = { ...s.overrides.subs }
+          delete subs[code]
+          return { overrides: { ...s.overrides, subs }, sel: null }
+        }),
+
+      movePart: (code, id, delta) =>
+        set((s) => ({
+          overrides: withParts(s.overrides, code, (parts) => {
+            const at = parts.findIndex((p) => partId(p) === id)
+            const to = at + delta
+            if (at < 0 || to < 0 || to >= parts.length) return parts
+            const out = [...parts]
+            ;[out[at], out[to]] = [out[to], out[at]]
+            return out
+          }),
+        })),
+      setVariant: (code, id, rev, variant) =>
+        set((s) => ({
+          overrides: withParts(s.overrides, code, (parts) =>
+            parts.map((p) => {
+              if (partId(p) !== id) return p
+              const byRev = { ...p.byRev }
+              if (variant === null) delete byRev[rev]
+              else byRev[rev] = variant
+              return Object.keys(byRev).length ? { ...p, byRev } : { ...p, byRev: undefined }
+            }),
+          ),
+        })),
     }),
-    { name: 'unit-info', partialize: persistedFields, storage: createJSONStorage(webOrMemory) },
+    {
+      name: 'unit-info',
+      version: PERSIST_VERSION,
+      partialize: persistedFields,
+      storage: createJSONStorage(webOrMemory),
+      migrate: (persisted, from) => {
+        const s = (persisted ?? {}) as Partial<State>
+        return (from ?? 0) >= PERSIST_VERSION
+          ? (s as State)
+          : ({ ...s, overrides: migrateOverrides(s.overrides) } as State)
+      },
+    },
   ),
 )
 

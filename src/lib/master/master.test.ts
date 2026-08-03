@@ -103,7 +103,7 @@ describe('round-tripping our own export', () => {
     // The workbook fully determines the result, but an untouched one must not
     // pin anything — otherwise the fleet stops tracking its source data.
     const plan = validateWorkbook(await roundTrip(), ctx())
-    expect(plan.overrides.parts).toEqual({})
+    expect(plan.overrides.subs).toEqual({})
     expect(plan.overrides.units).toEqual({})
     expect(plan.summary.subsChanged).toEqual([])
   })
@@ -116,7 +116,7 @@ describe('round-tripping our own export', () => {
 
   it('survives a fleet that already carries admin edits', async () => {
     const overrides = {
-      parts: { MG: partsFor('MG', EMPTY_OVERRIDES).slice(0, 2) },
+      subs: { MG: { parts: partsFor('MG', EMPTY_OVERRIDES).slice(0, 2) } },
       units: { 'T-16': { vin: 'EDITED-VIN' } },
     }
     const plan = validateWorkbook(await roundTrip(overrides), ctx())
@@ -156,6 +156,25 @@ describe('a workbook that has been through real Excel', () => {
     const front = partsFor('RG', plan.overrides).find((p) => partId(p) === 'DMF-1650-F')!
     expect(front.part).toBe('DMF-1650-F-REV-E')
     expect(front.desc).toBe('Front rail gear assembly, edited in Excel')
+  })
+
+  it('picks up a subassembly created inside Excel', async () => {
+    // The fixture carries an HY row added on sheet 1, its part on sheet 2, and
+    // a fit_HY column placed AFTER derived_line_count — which is what proves
+    // the dynamic fit_ discovery does not depend on column position.
+    const plan = validateWorkbook(await fixture('master-excel-roundtrip.xlsx'), ctx())
+    expect(plan.errors).toEqual([])
+    expect(plan.summary.subsAdded).toEqual(['HY'])
+    const t16 = buildFleet(plan.overrides).find((u) => u.id === 'T-16')!
+    expect(t16.subs).toContain('HY')
+    expect(t16.lines.find((l) => l.sub === 'HY')!.part).toBe('HY-8100-01')
+    expect(t16.lines.find((l) => l.sub === 'HY')!.subName).toBe('Hydraulics')
+  })
+
+  it('puts the fit column after the derived columns, and still reads it', async () => {
+    const wb = await fixture('master-excel-roundtrip.xlsx')
+    const header = wb.get(SHEET.units)![0]
+    expect(header.indexOf('fit_HY')).toBeGreaterThan(header.indexOf('derived_line_count'))
   })
 
   it('keeps records attached when a part number is renamed in Excel', async () => {
@@ -243,7 +262,7 @@ describe('rejecting a workbook', () => {
   it('writes nothing when it rejects', async () => {
     const wb = edit(await roundTrip(), SHEET.parts, 1, 'part_number', '')
     const plan = validateWorkbook(wb, ctx())
-    expect(plan.overrides).toEqual({ parts: {}, units: {} })
+    expect(plan.overrides).toEqual({ subs: {}, units: {} })
   })
 })
 
@@ -320,17 +339,28 @@ describe('editing through the workbook', () => {
   })
 
   it('ignores edits to a read-only sheet', async () => {
-    const wb = edit(await roundTrip(), SHEET.subassemblies, 1, 'name', 'Renamed Subassembly')
+    // "5 Unit Lines (read-only)" is a reference view of the other sheets.
+    const wb = edit(await roundTrip(), SHEET.lines, 1, 'part_number', 'NOT-A-REAL-EDIT')
     const plan = validateWorkbook(wb, ctx())
     expect(plan.ok).toBe(true)
-    expect(plan.overrides.parts).toEqual({})
+    expect(plan.overrides.subs).toEqual({})
+  })
+
+  it('renames a subassembly from sheet 1', async () => {
+    const wb = edit(await roundTrip(), SHEET.subassemblies, 1, 'name', 'Rail Gear — 2026 spec')
+    const plan = validateWorkbook(wb, ctx())
+    expect(plan.ok).toBe(true)
+    expect(plan.overrides.subs.RG).toEqual({ name: 'Rail Gear — 2026 spec' })
+    // A rename must not pin the parts list — it keeps tracking source.
+    expect(plan.overrides.subs.RG.parts).toBeUndefined()
+    expect(buildFleet(plan.overrides)[0].lines[0].subName).toBe('Rail Gear — 2026 spec')
   })
 
   it('ignores edits to a derived column', async () => {
     const wb = edit(await roundTrip(), SHEET.parts, 1, 'derived_units_fitted', '999')
     const plan = validateWorkbook(wb, ctx())
     expect(plan.ok).toBe(true)
-    expect(plan.overrides.parts).toEqual({})
+    expect(plan.overrides.subs).toEqual({})
   })
 
   it('survives the columns being reordered in Excel', async () => {
@@ -339,7 +369,202 @@ describe('editing through the workbook', () => {
     wb.set(SHEET.parts, rows)
     const plan = validateWorkbook(wb, ctx())
     expect(plan.errors).toEqual([])
-    expect(plan.overrides.parts).toEqual({})
+    expect(plan.overrides.subs).toEqual({})
+  })
+})
+
+/** Adds a row to a sheet, padded to the header width. */
+function addRow(wb: Workbook, sheet: string, cells: Record<string, string>): Workbook {
+  const rows = wb.get(sheet)!.map((r) => [...r])
+  const row = Array(rows[0].length).fill('')
+  for (const [header, value] of Object.entries(cells)) row[rows[0].indexOf(header)] = value
+  rows.push(row)
+  const out = new Map(wb)
+  out.set(sheet, rows)
+  return out
+}
+
+/** Appends a column with a value on one unit's row. */
+function addFitColumn(wb: Workbook, header: string, unitId: string, mark: string): Workbook {
+  const rows = wb.get(SHEET.units)!.map((r) => [...r])
+  const idAt = rows[0].indexOf('unit_id')
+  rows.forEach((r, i) => r.push(i === 0 ? header : r[idAt] === unitId ? mark : ''))
+  const out = new Map(wb)
+  out.set(SHEET.units, rows)
+  return out
+}
+
+const withHydraulics = async () => {
+  let wb = await roundTrip()
+  wb = addRow(wb, SHEET.subassemblies, { sub_code: 'HY', name: 'Hydraulics', kind: 'optional' })
+  wb = addRow(wb, SHEET.parts, {
+    sub_code: 'HY',
+    part_number: 'HY-8100-01',
+    description: 'Hydraulic pump, main',
+    rev: 'A',
+    location: 'Deck / power pack',
+  })
+  return wb
+}
+
+describe('creating a subassembly through the workbook', () => {
+  it('accepts a new row plus its parts and a fit column', async () => {
+    const wb = addFitColumn(await withHydraulics(), 'fit_HY', 'T-16', 'X')
+    const plan = validateWorkbook(wb, ctx())
+    expect(plan.errors).toEqual([])
+    expect(plan.summary.subsAdded).toEqual(['HY'])
+    const t16 = buildFleet(plan.overrides).find((u) => u.id === 'T-16')!
+    expect(t16.subs).toContain('HY')
+    expect(t16.lines.find((l) => l.sub === 'HY')!.part).toBe('HY-8100-01')
+    expect(t16.lines.find((l) => l.sub === 'HY')!.subName).toBe('Hydraulics')
+  })
+
+  it('names it in the confirmation line', async () => {
+    const wb = addFitColumn(await withHydraulics(), 'fit_HY', 'T-16', 'X')
+    expect(validateWorkbook(wb, ctx()).confirm).toContain('1 added (HY)')
+  })
+
+  it('accepts a lowercase fit column header', async () => {
+    const wb = addFitColumn(await withHydraulics(), 'fit_hy', 'T-16', 'X')
+    const plan = validateWorkbook(wb, ctx())
+    expect(plan.errors).toEqual([])
+    expect(buildFleet(plan.overrides).find((u) => u.id === 'T-16')!.subs).toContain('HY')
+  })
+
+  it('warns rather than rejects when the new subassembly has no fit column yet', async () => {
+    const plan = validateWorkbook(await withHydraulics(), ctx())
+    expect(plan.ok).toBe(true)
+    expect(plan.warnings.map((w) => w.code)).toContain('W-FIT-COLUMN-MISSING')
+    expect(buildFleet(plan.overrides).some((u) => u.subs.includes('HY'))).toBe(false)
+  })
+
+  it('warns when a new subassembly has no parts', async () => {
+    let wb = await roundTrip()
+    wb = addRow(wb, SHEET.subassemblies, { sub_code: 'HY', name: 'Hydraulics', kind: 'optional' })
+    const plan = validateWorkbook(wb, ctx())
+    expect(plan.ok).toBe(true)
+    expect(plan.warnings.map((w) => w.code)).toContain('W-SUB-EMPTY')
+  })
+
+  it('does not fit it to anything on its own', async () => {
+    const plan = validateWorkbook(await withHydraulics(), ctx())
+    expect(plan.overrides.units).toEqual({})
+  })
+})
+
+describe('rejecting a bad subassembly sheet', () => {
+  const expectError = (plan: ReturnType<typeof validateWorkbook>, code: string) => {
+    expect(plan.ok).toBe(false)
+    expect(plan.errors.map((e) => e.code)).toContain(code)
+  }
+
+  it('turns away a blank code', async () => {
+    const wb = edit(await roundTrip(), SHEET.subassemblies, 1, 'sub_code', '')
+    expectError(validateWorkbook(wb, ctx()), 'E-SUB-CODE-BLANK')
+  })
+
+  it('turns away a malformed code', async () => {
+    for (const bad of ['HYDRAULICS', '1X', 'H']) {
+      const wb = edit(await roundTrip(), SHEET.subassemblies, 1, 'sub_code', bad)
+      expectError(validateWorkbook(wb, ctx()), 'E-SUB-CODE-INVALID')
+    }
+  })
+
+  it('turns away a duplicated code', async () => {
+    const wb = edit(await roundTrip(), SHEET.subassemblies, 2, 'sub_code', 'RG')
+    expectError(validateWorkbook(wb, ctx()), 'E-SUB-DUPLICATE')
+  })
+
+  it('turns away a blank name', async () => {
+    const wb = edit(await roundTrip(), SHEET.subassemblies, 1, 'name', '')
+    expectError(validateWorkbook(wb, ctx()), 'E-SUB-NAME-BLANK')
+  })
+
+  it('turns away an unknown kind', async () => {
+    const wb = edit(await roundTrip(), SHEET.subassemblies, 1, 'kind', 'optionel')
+    expectError(validateWorkbook(wb, ctx()), 'E-SUB-KIND-UNKNOWN')
+  })
+
+  it('turns away an empty subassembly sheet', async () => {
+    const wb = new Map(await roundTrip())
+    wb.set(SHEET.subassemblies, [wb.get(SHEET.subassemblies)![0]])
+    expectError(validateWorkbook(wb, ctx()), 'E-SUB-NONE')
+  })
+
+  it('turns away a part on a subassembly the sheet does not declare', async () => {
+    const wb = addRow(await roundTrip(), SHEET.parts, {
+      sub_code: 'HY',
+      part_number: 'HY-1',
+      description: 'orphan',
+    })
+    expectError(validateWorkbook(wb, ctx()), 'E-SUB-UNKNOWN')
+  })
+
+  it('turns away a fit column for an undeclared subassembly', async () => {
+    const wb = addFitColumn(await roundTrip(), 'fit_HY', 'T-16', 'X')
+    expectError(validateWorkbook(wb, ctx()), 'E-FIT-COLUMN-UNKNOWN')
+  })
+
+  it('turns away a duplicated fit column', async () => {
+    const wb = addFitColumn(await roundTrip(), 'fit_RG', 'T-16', 'X')
+    expectError(validateWorkbook(wb, ctx()), 'E-FIT-COLUMN-DUPLICATE')
+  })
+
+  it('turns away a deleted fit column for a subassembly machines carry', async () => {
+    const wb = new Map(await roundTrip())
+    const rows = wb.get(SHEET.units)!
+    const at = rows[0].indexOf('fit_RG')
+    wb.set(
+      SHEET.units,
+      rows.map((r) => r.filter((_, i) => i !== at)),
+    )
+    const plan = validateWorkbook(wb, ctx())
+    expectError(plan, 'E-FIT-COLUMN-MISSING')
+    expect(plan.overrides).toEqual({ subs: {}, units: {} })
+  })
+})
+
+describe('dropping a subassembly through the workbook', () => {
+  /** Removes CV entirely: its sheet-1 row, its parts, and its fit column. */
+  const withoutConveyor = async () => {
+    const wb = new Map(await roundTrip())
+    const subs = wb.get(SHEET.subassemblies)!
+    wb.set(
+      SHEET.subassemblies,
+      subs.filter((r, i) => i === 0 || r[subs[0].indexOf('sub_code')] !== 'CV'),
+    )
+    const parts = wb.get(SHEET.parts)!
+    wb.set(
+      SHEET.parts,
+      parts.filter((r, i) => i === 0 || r[parts[0].indexOf('sub_code')] !== 'CV'),
+    )
+    const units = wb.get(SHEET.units)!
+    const at = units[0].indexOf('fit_CV')
+    wb.set(
+      SHEET.units,
+      units.map((r) => r.filter((_, i) => i !== at)),
+    )
+    return wb
+  }
+
+  it('is permitted, warned about, and takes it off every machine', async () => {
+    const plan = validateWorkbook(await withoutConveyor(), ctx())
+    expect(plan.errors).toEqual([])
+    expect(plan.warnings.map((w) => w.code)).toContain('W-SUB-DROPPED')
+    expect(plan.summary.subsRemoved).toEqual(['CV'])
+    expect(buildFleet(plan.overrides).some((u) => u.subs.includes('CV'))).toBe(false)
+  })
+
+  it('rejects a half-done removal that leaves the parts behind', async () => {
+    const wb = new Map(await roundTrip())
+    const subs = wb.get(SHEET.subassemblies)!
+    wb.set(
+      SHEET.subassemblies,
+      subs.filter((r, i) => i === 0 || r[subs[0].indexOf('sub_code')] !== 'CV'),
+    )
+    const plan = validateWorkbook(wb, ctx())
+    expect(plan.ok).toBe(false)
+    expect(plan.errors.map((e) => e.code)).toContain('E-SUB-UNKNOWN')
   })
 })
 

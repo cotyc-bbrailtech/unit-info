@@ -63,7 +63,8 @@ a:hover {
   gap: var(--space-6);
   max-width: 1120px;
 }
-.pad-fleet h1 {
+.pad-fleet h1,
+.pad-unit h1 {
   margin: 0 0 var(--space-2);
 }
 .fleet-summary {
@@ -225,7 +226,8 @@ a:hover {
   align-items: center;
   padding: 7px var(--space-4) 7px var(--space-8);
 }
-.line-row.is-selected {
+.line-row.is-selected,
+.sub-row.is-selected {
   background: var(--color-accent-100);
   box-shadow: inset 2px 0 0 var(--color-accent);
 }
@@ -402,7 +404,8 @@ a:hover {
   letter-spacing: 0.5em;
   font-variant-numeric: tabular-nums;
 }
-.pin-error {
+.pin-error,
+.field-error {
   font-size: 12.5px;
   color: var(--color-accent-800);
 }
@@ -410,6 +413,186 @@ a:hover {
   margin: 0;
   font-size: 11.5px;
   text-wrap: pretty;
+}
+
+/* — subassembly design page —
+   Index left, editor right. The parts grid is a dense form, not a list of
+   targets: you tab straight down it entering a real parts list. */
+
+.head-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.two-col-index {
+  grid-template-columns: 260px minmax(0, 1fr);
+}
+
+.sub-index {
+  padding: var(--space-2) 0;
+  align-self: start;
+}
+.sub-index-list {
+  display: flex;
+  flex-direction: column;
+}
+.sub-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  column-gap: var(--space-2);
+  row-gap: 2px;
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sub-row:hover {
+  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+}
+.sub-row-code {
+  grid-row: 1 / span 2;
+  align-self: start;
+  padding-top: 2px;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+.sub-row-name {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 15px;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+.sub-row-meta {
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+.sub-row-origin {
+  margin-left: var(--space-2);
+  font-size: 10px;
+  padding: 1px 6px;
+}
+.sub-index-foot {
+  padding: var(--space-2) var(--space-3) 0;
+  border-top: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent);
+}
+
+.sub-editor-pane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.code-input {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+}
+.field-label {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 5px;
+  color: color-mix(in srgb, var(--color-text) 70%, transparent);
+}
+
+/* The consequence line rides with the grid rather than scrolling away. */
+.sub-scope {
+  position: sticky;
+  top: 80px;
+  z-index: 5;
+  margin: calc(var(--space-4) * -1) calc(var(--space-4) * -1) 0;
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-divider);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+.sub-scope b {
+  font-weight: 700;
+  color: var(--color-accent-800);
+}
+
+.table-parts th:nth-child(1) { width: 26px; }
+.table-parts th:nth-child(2) { width: 150px; }
+.table-parts th:nth-child(3) { width: 104px; }
+.table-parts th:nth-child(5) { width: 56px; }
+.table-parts th:nth-child(6) { width: 150px; }
+.table-parts th:nth-child(7) { width: 84px; }
+.table-parts td {
+  padding: 4px var(--space-2);
+}
+/* Rows here are fields, not click targets. */
+.table-parts tbody tr:hover {
+  background: transparent;
+}
+.table-parts .input {
+  min-height: 30px;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.part-id {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+.part-caret {
+  padding-left: 0;
+  padding-right: 0;
+}
+.part-caret-btn {
+  display: inline-flex;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.part-caret-btn:hover {
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+}
+
+.part-detail-cell {
+  padding: 0;
+}
+.part-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-3) var(--space-4) var(--space-8);
+  box-shadow: inset 2px 0 0 var(--color-divider);
+}
+.part-variants {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: flex-start;
+}
+.part-variant-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: center;
+  width: 100%;
+}
+.part-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.sub-parts-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding-top: var(--space-3);
 }
 
 /* — master data workbook — */
@@ -637,13 +820,40 @@ a:hover {
   .phone-footer {
     padding-bottom: calc(var(--space-4) + env(safe-area-inset-bottom));
   }
-  .two-col {
+  .two-col,
+  .two-col.two-col-index {
     grid-template-columns: minmax(0, 1fr);
     gap: var(--space-4);
   }
   .detail {
     position: static;
     top: auto;
+  }
+  /* The index becomes a short scroller so the editor stays one flick away. */
+  .sub-index-list {
+    max-height: 40vh;
+    overflow-y: auto;
+  }
+  .sub-scope {
+    margin: calc(var(--space-2) * -1) calc(var(--space-2) * -1) 0;
+    padding: var(--space-2);
+  }
+  /* Column 1 of the parts grid is a caret, not a card title — undo the
+     generic first-cell treatment the stacked table layout applies. */
+  .table-parts td:first-child {
+    font-size: inherit;
+    font-family: inherit;
+    justify-content: flex-start;
+  }
+  .table-parts .input {
+    min-height: 36px;
+    font-size: 14px;
+  }
+  .part-detail {
+    padding-left: var(--space-3);
+  }
+  .part-variant-row {
+    grid-template-columns: minmax(0, 1fr);
   }
   h1 {
     font-size: 30px;

@@ -4,9 +4,10 @@ Fleet-wide as-is component record system for BB Rail Tech's 37 in-service railro
 (T-16 … T-57). Runs the backlog audit that closes the component-record gap, then becomes the
 system of record.
 
-Four surfaces: **Fleet** (record coverage across the fleet), **Unit** (one machine's as-is
-component list), **Audit** (a phone flow, one component line at a time), and **Vue licences**
-(the Apera Vue vision inventory, reached from the Fleet header).
+Five surfaces: **Fleet** (record coverage across the fleet), **Unit** (one machine's as-is
+component list), **Audit** (a phone flow, one component line at a time), **Vue licences** (the
+Apera Vue vision inventory), and **Subassemblies** (admin only — design the master parts lists).
+The last two are reached from the Fleet header.
 
 ## Stack
 
@@ -34,6 +35,7 @@ npm run dev
 | `src/lib/overrides.ts` | Admin edits layered over the imported data. |
 | `src/lib/xlsx/` | Dependency-free OOXML read/write (zip, xml, read, write). |
 | `src/lib/master/` | The workbook contract, export, and import validation. |
+| `src/components/SubsView.tsx` | The admin subassembly design page. |
 | `src/store/useStore.ts` | App state, persisted to localStorage. |
 
 ## The duplicate-serial rule
@@ -89,12 +91,16 @@ order:
 | Sheet | What it is |
 | --- | --- |
 | `0 Read Me` | The contract, and the provenance stamp the importer checks. |
-| `1 Subassemblies (read-only)` | The seven subassemblies, their part counts and how many machines carry each. |
+| `1 Subassemblies` | **Editable.** Which subassemblies exist, and their names. Add a row to create one. |
 | `2 Parts` | **Editable.** The master parts lists — one row per part. |
 | `3 Part Variants` | **Editable.** Revision-dependent parts (the rev A / rev B camera). |
 | `4 Units` | **Editable.** Per machine: VIN, imported serials, and an `X` per fitted subassembly. |
 | `5 Unit Lines (read-only)` | Every machine's full line list, flattened. What the audit walks. |
 | `6 Vue Licences (read-only)` | The Apera Vue inventory. |
+
+The `fit_*` columns on `4 Units` are generated from whatever subassemblies exist, so creating one
+on sheet 1 adds its column on the next export. Sheet 1 is the authority: a `2 Parts` row or a
+`fit_` column for a code it does not declare is rejected.
 
 Two rules keep it self-documenting, and the importer enforces them rather than holding a second
 list: **a sheet whose name ends `(read-only)` is never read back**, and **a column whose header
@@ -147,6 +153,36 @@ just its own output. Our own writer's output needs no fixture: the tests generat
 Re-cut it whenever `SCHEMA_VERSION` or the master data changes, or an import of the stale file
 will quietly revert whatever moved on. **Copy it somewhere else before opening it in Excel** —
 Excel writes back to the file it opened, so editing the fixture in place overwrites it.
+
+### Subassembly design page
+
+Admin gets a dedicated page (Fleet header → **Subassemblies**) for structural work: create a
+subassembly, rename one, and edit its parts list in bulk. The Unit view keeps its in-context
+single-part editing — fix a line while you're looking at the machine it's on.
+
+**A subassembly's code is identity, not a label.** It is in every audit record key
+(`"T-16|RG:DMF-1650-WH"`), in generated part ids, and in the workbook's `fit_RG` headers. So the
+name and kind are editable and **the code is frozen once chosen** — changing it would detach
+every serial and note captured under it, the same failure `part_id` exists to prevent. A new code
+may never shadow a built-in either; that would silently re-point existing records at a different
+parts list.
+
+`kind` (common/optional) is **descriptive only**. It fits nothing to any machine. `defaultSubs`
+uses a separately hardcoded `COMMON = ['RG','LD','MG']` and deliberately does not read `kind` —
+deriving fitment from it would refit all 37 machines the moment someone re-kinds a subassembly
+here. There is a test guarding that.
+
+The page also exposes `serial_slot`, `spec` and `byRev`, which had no editor anywhere before.
+`serial_slot` matters most: `onRecord: !!p.slot` decides whether a line can ever be verified, so
+without it a new subassembly could never carry a serial without a trip through Excel.
+
+Parts order is **functional** — `linesFor` maps the array in order and the audit walks lines in
+that order, so the list order is the order someone walks the machine. Move up/down lives in the
+row drawer.
+
+Edits are stored as `Overrides.subs`, one record per subassembly (`name`, `kind`, `parts`), each
+field absent when it still tracks `subassemblies.ts`. Persisted state migrates from the old
+`overrides.parts` map at zustand persist version 1; records and the sync queue are untouched.
 
 ### The PIN is not a security control
 

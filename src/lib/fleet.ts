@@ -1,12 +1,18 @@
-import { SUBS } from '../data/subassemblies'
 import { parseCsvRows } from './csv'
-import { EMPTY_OVERRIDES, partId, partsFor } from './overrides'
+import { EMPTY_OVERRIDES, partId, partsFor, subName } from './overrides'
 import type { Overrides } from './overrides'
 import { subForLicense, VUE_BY_UNIT } from './vue'
-import type { Line, SubCode, Unit } from './types'
+import type { BuiltInSubCode, Line, Unit } from './types'
 import unitsCsv from '../data/units.csv?raw'
 
-const COMMON: SubCode[] = ['RG', 'LD', 'MG']
+/**
+ * Fitted to every machine before any admin edit. Deliberately a list of
+ * literals and NOT derived from `kind`: `kind` is descriptive, and deriving
+ * fitment from it would refit the whole fleet the moment someone re-kinds a
+ * subassembly on the design page. New subassemblies are fitted per machine,
+ * explicitly, through `fitSub`.
+ */
+const COMMON: BuiltInSubCode[] = ['RG', 'LD', 'MG']
 
 /** FNV-1a, normalised to 0..1 — a stable stand-in until the real per-unit
  *  option list and audit dates are imported. */
@@ -49,7 +55,7 @@ export function unitNumber(id: string): number {
 }
 
 /** The subassemblies a machine carries before any admin edit. */
-export function defaultSubs(unitId: string): SubCode[] {
+export function defaultSubs(unitId: string): BuiltInSubCode[] {
   const r = (k: string) => hash(unitId + k)
 
   // Vision comes from the Apera Vue licence sheet — a machine has one only
@@ -65,8 +71,9 @@ export function defaultSubs(unitId: string): SubCode[] {
 }
 
 export function linesFor(unit: Omit<Unit, 'lines'>, overrides: Overrides = EMPTY_OVERRIDES): Line[] {
-  return unit.subs.flatMap((code) =>
-    partsFor(code, overrides).map((p) => {
+  return unit.subs.flatMap((code) => {
+    const name = subName(code, overrides)
+    return partsFor(code, overrides).map((p) => {
       // The Vue system's revision is per machine, not per part number — it also
       // decides which variant of a byRev part is actually fitted.
       const revFromMachine = p.slot === 'vue' || p.byRev
@@ -77,14 +84,14 @@ export function linesFor(unit: Omit<Unit, 'lines'>, overrides: Overrides = EMPTY
         ...p,
         key: `${code}:${partId(p)}`,
         sub: code,
-        subName: SUBS[code].name,
+        subName: name,
         serial: p.slot ? unit.serials[p.slot] : '',
         rev,
         desc: p.byRev ? `${p.desc} — ${variant ?? `variant not identified for rev ${rev}`}` : p.desc,
         onRecord: !!p.slot,
       }
-    }),
-  )
+    })
+  })
 }
 
 export function buildFleet(overrides: Overrides = EMPTY_OVERRIDES, csv: string = unitsCsv): Unit[] {
