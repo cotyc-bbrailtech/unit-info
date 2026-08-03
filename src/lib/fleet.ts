@@ -39,6 +39,15 @@ export function parseUnitsCsv(csv: string): CsvRow[] {
     .filter((r) => r.unit)
 }
 
+/**
+ * `T-16` -> 16. Sorting on this rather than the string keeps T-9 before T-10
+ * if a single-digit or three-digit machine ever joins the fleet.
+ */
+export function unitNumber(id: string): number {
+  const m = /\d+/.exec(id)
+  return m ? Number.parseInt(m[0], 10) : Number.MAX_SAFE_INTEGER
+}
+
 /** The subassemblies a machine carries before any admin edit. */
 export function defaultSubs(unitId: string): SubCode[] {
   const r = (k: string) => hash(unitId + k)

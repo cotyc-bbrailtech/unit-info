@@ -1,4 +1,5 @@
 import { SUBS } from '../data/subassemblies'
+import { unitNumber } from '../lib/fleet'
 import type { FleetResolution } from '../lib/records'
 import type { Unit } from '../lib/types'
 import { useStore } from '../store/useStore'
@@ -15,7 +16,7 @@ export function FleetView({
   const setView = useStore((s) => s.setView)
   const { coverage, fleet } = resolution
 
-  const rows = [...units].sort((a, b) => coverage.get(a.id)!.pct - coverage.get(b.id)!.pct)
+  const rows = [...units].sort((a, b) => unitNumber(a.id) - unitNumber(b.id))
 
   return (
     <div className="pad-fleet">

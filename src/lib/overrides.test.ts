@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { buildFleet, defaultSubs } from './fleet'
+import { BASE_FLEET, buildFleet, defaultSubs, unitNumber } from './fleet'
 import { recordKey, resolveFleet } from './records'
 import { ADMIN_PIN, persistedFields, useStore } from '../store/useStore'
 import { EMPTY_OVERRIDES } from './overrides'
@@ -91,6 +91,23 @@ describe('parts renamed to their real manufacturer numbers', () => {
   it('has dropped the rail gear parts that are not fitted', () => {
     const rg = buildFleet()[0].lines.filter((l) => l.sub === 'RG').map((l) => l.part)
     expect(rg).toEqual(['DMF-1650-F', 'DMF-1650-R', 'DMF-1650-WH', 'DMF-1650-CYL'])
+  })
+})
+
+describe('fleet ordering', () => {
+  it('sorts by unit number, not by string', () => {
+    const ids = [...BASE_FLEET].sort((a, b) => unitNumber(a.id) - unitNumber(b.id)).map((u) => u.id)
+    expect(ids[0]).toBe('T-16')
+    expect(ids.at(-1)).toBe('T-57')
+    expect(ids).toEqual([...ids].sort((a, b) => unitNumber(a) - unitNumber(b)))
+  })
+
+  it('keeps single-digit machines ahead of double-digit ones', () => {
+    expect(['T-10', 'T-9', 'T-100'].sort((a, b) => unitNumber(a) - unitNumber(b))).toEqual([
+      'T-9',
+      'T-10',
+      'T-100',
+    ])
   })
 })
 
