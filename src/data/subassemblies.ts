@@ -65,10 +65,10 @@ export const SUBS: Record<SubCode, Subassembly> = {
         part: 'VT-4110-02',
         desc: 'Industrial camera',
         rev: 'A',
-        loc: 'Underframe / center',
+        loc: 'Front bumper / center',
         byRev: { A: 'Basler', B: 'IDS, rolling shutter' },
       },
-      { part: 'VT-4200-01', desc: 'LED bar illuminator', rev: 'A', loc: 'Underframe / center' },
+      { part: 'VT-4200-01', desc: 'LED bar illuminator', rev: 'A', loc: 'Front bumper / center' },
       {
         part: 'FX5UC-32MR/DS-TS',
         desc: 'PLC, Mitsubishi FX5UC-32MR/DS-TS',

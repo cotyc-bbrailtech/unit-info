@@ -112,6 +112,14 @@ describe('vision subassemblies on the fleet', () => {
     expect(parts).not.toContain('VT-4305-02')
   })
 
+  it('puts the camera and light bar on the front bumper', () => {
+    // Real location, not the placeholder the parts list shipped with.
+    const lines = unit('T-32').lines
+    for (const part of ['VT-4110-02', 'VT-4200-01']) {
+      expect(lines.find((l) => l.part === part)!.loc).toBe('Front bumper / center')
+    }
+  })
+
   it('fits the Basler camera on a rev A machine', () => {
     // All four tie-detection machines are rev A in the licence sheet.
     for (const id of ['T-32', 'T-34', 'T-36', 'T-50']) {
