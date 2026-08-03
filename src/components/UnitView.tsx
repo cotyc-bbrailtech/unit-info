@@ -15,10 +15,19 @@ import type {
 import { isGroupOpen, useStore } from '../store/useStore'
 import { Corners } from './Corners'
 import { ArrowLeft, Check, ChevronRight } from './Icons'
+import { MasterDataPanel } from './MasterDataPanel'
 
 const ALL_SUBS = Object.keys(SUBS) as SubCode[]
 
-export function UnitView({ unit, resolution }: { unit: Unit; resolution: FleetResolution }) {
+export function UnitView({
+  unit,
+  fleet,
+  resolution,
+}: {
+  unit: Unit
+  fleet: Unit[]
+  resolution: FleetResolution
+}) {
   const { resolved, coverage } = resolution
   const sel = useStore((s) => s.sel)
   const openGroups = useStore((s) => s.openGroups)
@@ -63,7 +72,12 @@ export function UnitView({ unit, resolution }: { unit: Unit; resolution: FleetRe
         </button>
       </div>
 
-      {admin && <AdminUnitPanel unit={unit} />}
+      {admin && (
+        <>
+          <AdminUnitPanel unit={unit} />
+          <MasterDataPanel fleet={fleet} />
+        </>
+      )}
 
       <div className="two-col">
         <div className="blueprint line-panel">

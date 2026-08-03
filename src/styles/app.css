@@ -412,6 +412,63 @@ a:hover {
   text-wrap: pretty;
 }
 
+/* — master data workbook — */
+.master-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.master-report {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.master-filename {
+  font-size: 12px;
+  font-weight: 700;
+}
+.master-note {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: 12.5px;
+  text-wrap: pretty;
+}
+.master-ok {
+  color: var(--color-accent-800);
+}
+.master-bad {
+  color: var(--color-accent-900);
+  font-weight: 700;
+}
+.master-issues {
+  margin: 0;
+  padding-left: var(--space-6);
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  text-wrap: pretty;
+}
+.master-warn {
+  color: var(--color-accent-800);
+}
+.master-confirm {
+  font-size: 12.5px;
+  font-weight: 700;
+  text-wrap: pretty;
+}
+
 /* — audit — */
 
 .audit-wrap {

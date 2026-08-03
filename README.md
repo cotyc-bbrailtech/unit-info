@@ -32,6 +32,8 @@ npm run dev
 | `src/lib/records.ts` | Serial index, duplicate rule, coverage. The core logic. |
 | `src/lib/vue.ts` | Vue licence parsing and the machine → vision-system mapping. |
 | `src/lib/overrides.ts` | Admin edits layered over the imported data. |
+| `src/lib/xlsx/` | Dependency-free OOXML read/write (zip, xml, read, write). |
+| `src/lib/master/` | The workbook contract, export, and import validation. |
 | `src/store/useStore.ts` | App state, persisted to localStorage. |
 
 ## The duplicate-serial rule
@@ -78,6 +80,69 @@ CSVs stay the record of what was imported and any edit can be traced or reset
 Parts carry a stable `id` separate from the part number, so **renaming a part number does not
 orphan the records already captured against it**. Built-in parts adopt their part number as
 their id the first time a subassembly is edited.
+
+### Master data workbook
+
+Admin mode exports and imports the master data as a single `.xlsx`. Seven sheets, in reading
+order:
+
+| Sheet | What it is |
+| --- | --- |
+| `0 Read Me` | The contract, and the provenance stamp the importer checks. |
+| `1 Subassemblies (read-only)` | The seven subassemblies, their part counts and how many machines carry each. |
+| `2 Parts` | **Editable.** The master parts lists — one row per part. |
+| `3 Part Variants` | **Editable.** Revision-dependent parts (the rev A / rev B camera). |
+| `4 Units` | **Editable.** Per machine: VIN, imported serials, and an `X` per fitted subassembly. |
+| `5 Unit Lines (read-only)` | Every machine's full line list, flattened. What the audit walks. |
+| `6 Vue Licences (read-only)` | The Apera Vue inventory. |
+
+Two rules keep it self-documenting, and the importer enforces them rather than holding a second
+list: **a sheet whose name ends `(read-only)` is never read back**, and **a column whose header
+starts `derived_` is never read back**.
+
+`part_id` is the load-bearing column. It is the identity audit records are keyed to, so renaming
+`part_number` is safe and renaming `part_id` detaches every serial and note captured against that
+part. The Read Me sheet says so; `2 Parts` shows the id greyed beside the editable number.
+
+**Import replaces everything.** The workbook fully determines the result — a part or a fitment
+mark absent from the file is removed. There is no undo; export first if you want a way back.
+Two things temper that:
+
+- **It validates before it writes.** Wrong provenance, unknown schema version, a missing sheet or
+  column, an unknown `sub_code` or `serial_slot`, a duplicate `part_id`, a blank `part_number`, an
+  orphan variant, an unknown machine, or a *missing* machine — any of these rejects the whole file
+  and nothing is written. Replacing with a malformed file is corruption, not replacement.
+- **It writes a minimal diff.** A subassembly or machine the workbook did not actually change gets
+  no override at all, so it keeps tracking `units.csv`, `vue-licenses.csv` and `subassemblies.ts`
+  rather than being frozen at the value it happened to have on export day.
+
+The roster is fixed: import cannot add or remove a machine, because `buildFleet` maps over
+`units.csv`. Deleting a row on `4 Units` is rejected rather than silently reverting that machine.
+
+Only files this app wrote are accepted — the `0 Read Me` provenance stamp is what makes a
+hand-rolled reader safe. The workflow is always **export first, edit that file, import it back**.
+
+### xlsx with no dependencies
+
+`src/lib/xlsx/` reads and writes OOXML directly — about 450 lines over a hand-rolled ZIP
+container, no packages added. The app is a public static bundle with three runtime dependencies
+and every dependency here executes in a stranger's browser tab; the alternatives cost 5–216
+packages, and SheetJS's npm build carries two unfixed HIGH advisories. This is only safe because
+the problem is narrow: **every cell is text**, so there is no number format or date serial to
+misread, and the provenance gate means the reader only ever sees files this app produced.
+
+Writing uses STORE (uncompressed), so export works in any browser. Reading needs
+`DecompressionStream('deflate-raw')` — Chrome 103+, Firefox 113+, Safari 16.4+ — because Excel
+always deflates. That is feature-detected: import says so plainly on an older browser and export
+still works.
+
+Everything sits behind `await import('./lazy')`, so it is a ~9 KB gzip chunk that downloads only
+when an admin clicks Export or Import. An auditor on a phone never fetches it.
+
+`src/lib/master/__fixtures__/master-excel-roundtrip.xlsx` is the real workbook after a trip
+through **Excel for Windows** — opened, edited in Excel, re-saved. Excel rewrites it into shared
+strings and deflate, so that fixture is what proves the reader handles a real producer rather than
+just its own output. Re-cut it whenever `SCHEMA_VERSION` changes.
 
 ### The PIN is not a security control
 

@@ -25,7 +25,7 @@ export default function App() {
       <TopBar />
       {view === 'fleet' && <FleetView fleet={fleet} resolution={resolution} />}
       {view === 'vue' && <VueView />}
-      {view === 'machine' && <UnitView unit={unit} resolution={resolution} />}
+      {view === 'machine' && <UnitView unit={unit} fleet={fleet} resolution={resolution} />}
       {view === 'phone' && <AuditView unit={unit} resolution={resolution} />}
     </div>
   )

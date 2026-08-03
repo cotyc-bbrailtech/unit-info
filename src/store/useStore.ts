@@ -55,6 +55,7 @@ interface State {
   strikeSub: (unitId: string, code: SubCode) => void
   editUnit: (unitId: string, patch: { vin?: string; serials?: Partial<Record<SerialSlot, string>> }) => void
   resetOverrides: () => void
+  applyMasterData: (overrides: Overrides) => void
 }
 
 /** Rewrites one subassembly's parts list, materialising ids on first edit. */
@@ -174,6 +175,12 @@ export const useStore = create<State>()(
           }),
         })),
       resetOverrides: () => set({ overrides: EMPTY_OVERRIDES }),
+
+      // Records are deliberately untouched: they are keyed to part ids, so any
+      // that the workbook drops go inert rather than being deleted, and return
+      // if the id comes back. Selection is cleared because the line it pointed
+      // at may no longer exist.
+      applyMasterData: (overrides) => set({ overrides, sel: null, openGroups: {}, step: 0 }),
     }),
     { name: 'unit-info', partialize: persistedFields, storage: createJSONStorage(webOrMemory) },
   ),
