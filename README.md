@@ -85,7 +85,7 @@ their id the first time a subassembly is edited.
 
 ### Master data workbook
 
-Admin mode exports and imports the master data as a single `.xlsx`. Seven sheets, in reading
+Admin mode exports and imports the master data as a single `.xlsx`. Eight sheets, in reading
 order:
 
 | Sheet | What it is |
@@ -97,6 +97,7 @@ order:
 | `4 Units` | **Editable.** Per machine: VIN, imported serials, and an `X` per fitted subassembly. |
 | `5 Unit Lines (read-only)` | Every machine's full line list, flattened. What the audit walks. |
 | `6 Vue Licences (read-only)` | The Apera Vue inventory. |
+| `7 Machine Revisions` | **Editable.** Sparse — one row per machine carrying a different revision of a part. |
 
 The `fit_*` columns on `4 Units` are generated from whatever subassemblies exist, so creating one
 on sheet 1 adds its column on the next export. Sheet 1 is the authority: a `2 Parts` row or a
@@ -183,6 +184,29 @@ row drawer.
 Edits are stored as `Overrides.subs`, one record per subassembly (`name`, `kind`, `parts`), each
 field absent when it still tracks `subassemblies.ts`. Persisted state migrates from the old
 `overrides.parts` map at zustand persist version 1; records and the sync queue are untouched.
+
+### A revision unique to one machine
+
+`rev` normally lives on the master part — one value for every machine carrying the subassembly.
+Admin mode adds a second, machine-scoped field in the Unit view's detail panel
+(*"Revision · T-16 only"*), for the case where one machine genuinely carries a different revision.
+Leave it blank and the machine follows the master part; fill it in and only that machine moves.
+
+Precedence, most specific first:
+
+1. a revision set for that machine alone
+2. the machine's Vue revision, for parts the Vue system drives (`slot === 'vue'` or `byRev`)
+3. the master part's own revision
+
+**The `byRev` variant follows whichever wins.** So setting rev A on T-53's tie-detection camera
+does not just change a letter — it changes the camera the audit tells someone to look for, from
+the IDS rolling shutter to the Basler. The panel says so when the part has variants. That is
+deliberate: it is the only way to correct a Vue revision that is wrong on one machine.
+
+Stored as `UnitOverride.revs`, keyed by line key, and carried by workbook sheet
+**`7 Machine Revisions`** — sparse, one row per machine that differs. Without that sheet an
+export/import round trip would silently destroy every one of them, since `applyMasterData`
+replaces overrides wholesale.
 
 ### The PIN is not a security control
 

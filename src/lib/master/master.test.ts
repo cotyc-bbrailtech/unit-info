@@ -49,7 +49,7 @@ function edit(wb: Workbook, sheet: string, row: number, header: string, value: s
 }
 
 describe('the exported workbook', () => {
-  it('has the seven sheets in reading order', () => {
+  it('has the eight sheets in reading order', () => {
     expect(sheetsFor().map((s) => s.name)).toEqual([
       SHEET.readme,
       SHEET.subassemblies,
@@ -58,6 +58,7 @@ describe('the exported workbook', () => {
       SHEET.units,
       SHEET.lines,
       SHEET.vue,
+      SHEET.unitRevs,
     ])
   })
 
@@ -137,6 +138,7 @@ describe('a workbook that has been through real Excel', () => {
       SHEET.units,
       SHEET.lines,
       SHEET.vue,
+      SHEET.unitRevs,
     ])
     expect(wb.get(SHEET.units)!.length - 1).toBe(37)
   })
@@ -169,6 +171,18 @@ describe('a workbook that has been through real Excel', () => {
     expect(t16.subs).toContain('HY')
     expect(t16.lines.find((l) => l.sub === 'HY')!.part).toBe('HY-8100-01')
     expect(t16.lines.find((l) => l.sub === 'HY')!.subName).toBe('Hydraulics')
+  })
+
+  it('picks up per-machine revisions, including one typed into Excel', async () => {
+    const plan = validateWorkbook(await fixture('master-excel-roundtrip.xlsx'), ctx())
+    expect(plan.errors).toEqual([])
+    const fleet = buildFleet(plan.overrides)
+    // Exported from the app...
+    expect(fleet.find((u) => u.id === 'T-18')!.lines.find((l) => l.key === 'RG:DMF-1650-R')!.rev).toBe('F')
+    // ...and typed straight into the sheet in Excel.
+    expect(fleet.find((u) => u.id === 'T-16')!.lines.find((l) => l.key === 'MG:MG-3220-04')!.rev).toBe('G')
+    // Every other machine keeps the master revision.
+    expect(fleet.find((u) => u.id === 'T-19')!.lines.find((l) => l.key === 'RG:DMF-1650-R')!.rev).toBe('D')
   })
 
   it('puts the fit column after the derived columns, and still reads it', async () => {
@@ -565,6 +579,92 @@ describe('dropping a subassembly through the workbook', () => {
     const plan = validateWorkbook(wb, ctx())
     expect(plan.ok).toBe(false)
     expect(plan.errors.map((e) => e.code)).toContain('E-SUB-UNKNOWN')
+  })
+})
+
+describe('a revision set for one machine only', () => {
+  const withRev = (unitId: string, lineKey: string, rev: string) => ({
+    subs: {},
+    units: { [unitId]: { revs: { [lineKey]: rev } } },
+  })
+
+  it('exports one sparse row per machine that differs', async () => {
+    const wb = await roundTrip(withRev('T-16', 'RG:DMF-1650-F', 'E'))
+    const rows = wb.get(SHEET.unitRevs)!
+    const at = (h: string) => rows[0].indexOf(h)
+    expect(rows.length - 1).toBe(1)
+    expect(rows[1][at('unit_id')]).toBe('T-16')
+    expect(rows[1][at('part_id')]).toBe('DMF-1650-F')
+    expect(rows[1][at('rev')]).toBe('E')
+    expect(rows[1][at('derived_master_rev')]).toBe('D')
+  })
+
+  it('is empty when no machine differs', async () => {
+    expect((await roundTrip()).get(SHEET.unitRevs)!.length - 1).toBe(0)
+  })
+
+  it('survives a round trip — this is what stops import destroying it', async () => {
+    const before = withRev('T-16', 'RG:DMF-1650-F', 'E')
+    const plan = validateWorkbook(await roundTrip(before), ctx())
+    expect(plan.errors).toEqual([])
+    expect(plan.overrides.units['T-16'].revs).toEqual({ 'RG:DMF-1650-F': 'E' })
+    const t16 = buildFleet(plan.overrides).find((u) => u.id === 'T-16')!
+    expect(t16.lines.find((l) => l.key === 'RG:DMF-1650-F')!.rev).toBe('E')
+  })
+
+  it('changes that machine and no other', async () => {
+    const o = withRev('T-16', 'RG:DMF-1650-F', 'E')
+    const fleet = buildFleet(o)
+    expect(fleet.find((u) => u.id === 'T-16')!.lines.find((l) => l.key === 'RG:DMF-1650-F')!.rev).toBe('E')
+    expect(fleet.find((u) => u.id === 'T-18')!.lines.find((l) => l.key === 'RG:DMF-1650-F')!.rev).toBe('D')
+  })
+
+  it('wins over the machine Vue revision, and the variant follows it', async () => {
+    // T-53's Vue system is rev B, so its camera is the IDS rolling shutter.
+    const base = buildFleet().find((u) => u.id === 'T-53')!
+    expect(base.lines.find((l) => l.part === 'VT-4110-02')!.desc).toContain('IDS')
+
+    const o = withRev('T-53', 'VT:VT-4110-02', 'A')
+    const cam = buildFleet(o).find((u) => u.id === 'T-53')!.lines.find((l) => l.part === 'VT-4110-02')!
+    expect(cam.rev).toBe('A')
+    expect(cam.desc).toContain('Basler')
+  })
+
+  it('clears back to the master revision when blanked', async () => {
+    const wb = edit(await roundTrip(withRev('T-16', 'RG:DMF-1650-F', 'E')), SHEET.unitRevs, 1, 'rev', '')
+    const plan = validateWorkbook(wb, ctx())
+    expect(plan.ok).toBe(true)
+    expect(plan.overrides.units['T-16']).toBeUndefined()
+    expect(buildFleet(plan.overrides).find((u) => u.id === 'T-16')!.lines[0].rev).toBe('D')
+  })
+
+  it('turns away a revision on a part that is not there', async () => {
+    const wb = edit(
+      await roundTrip(withRev('T-16', 'RG:DMF-1650-F', 'E')),
+      SHEET.unitRevs,
+      1,
+      'part_id',
+      'NOT-A-PART',
+    )
+    const plan = validateWorkbook(wb, ctx())
+    expect(plan.ok).toBe(false)
+    expect(plan.errors.map((e) => e.code)).toContain('E-REV-ORPHAN')
+  })
+
+  it('turns away two revisions for the same machine and part', async () => {
+    const wb = await roundTrip(withRev('T-16', 'RG:DMF-1650-F', 'E'))
+    const rows = [...wb.get(SHEET.unitRevs)!]
+    rows.push([...rows[1]])
+    const out = new Map(wb)
+    out.set(SHEET.unitRevs, rows)
+    expect(validateWorkbook(out, ctx()).errors.map((e) => e.code)).toContain('E-REV-DUPLICATE')
+  })
+
+  it('warns when the machine is not fitted with that subassembly', async () => {
+    // T-16 carries no Vision, so a revision on a VT part has nothing to apply to.
+    const plan = validateWorkbook(await roundTrip(withRev('T-16', 'VT:VT-4110-02', 'B')), ctx())
+    expect(plan.ok).toBe(true)
+    expect(plan.warnings.map((w) => w.code)).toContain('W-REV-UNFITTED')
   })
 })
 

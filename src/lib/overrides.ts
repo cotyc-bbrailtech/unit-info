@@ -44,6 +44,8 @@ export interface UnitOverride {
   serials?: Partial<Record<SerialSlot, string>>
   /** Which subassemblies are fitted, when it differs from the imported guess. */
   subs?: SubCode[]
+  /** Per-line revision on this machine only, keyed `"<SUB>:<partId>"`. */
+  revs?: Record<string, string>
 }
 
 export const EMPTY_OVERRIDES: Overrides = { subs: {}, units: {} }

@@ -68,6 +68,12 @@ export interface Unit {
   serials: Record<SerialSlot, string>
   /** Revision of the Apera Vue system on this machine, when it carries one. */
   vueRev?: string
+  /**
+   * Revisions an admin set for this machine alone, keyed by line key. Wins over
+   * both the master part and the Vue-derived revision — it is the most specific
+   * statement about this machine.
+   */
+  revs?: Record<string, string>
   lastAudit: string
   lines: Line[]
 }

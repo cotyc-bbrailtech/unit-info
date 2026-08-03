@@ -33,6 +33,7 @@ import {
   SERIAL_SLOTS,
   SHEET,
   SUBASSEMBLIES_COLUMNS,
+  UNIT_REVS_COLUMNS,
   SUB_KINDS,
   unitsColumns,
   fitCode,
@@ -129,6 +130,7 @@ export function validateWorkbook(wb: Workbook, ctx: ImportContext): ImportPlan {
     { name: SHEET.variants, columns: VARIANTS_COLUMNS },
     // The fit_ columns are dynamic, so only the fixed ones are required here.
     { name: SHEET.units, columns: unitsColumns([]) },
+    { name: SHEET.unitRevs, columns: UNIT_REVS_COLUMNS },
   ]
   const heads = new Map<string, Map<string, number>>()
   for (const n of need) {
@@ -461,6 +463,80 @@ export function validateWorkbook(wb: Workbook, ctx: ImportContext): ImportPlan {
     if (!sameFitment) o.subs = subs
     if (Object.keys(o).length) unitOverrides[id] = o
   })
+
+  // ── Gate 7: per-machine revisions ─────────────────────────────────────────
+  // Sparse. A machine with no row here simply follows the master part, so a
+  // blank rev and a deleted row both mean "put it back".
+  const rIdx = heads.get(SHEET.unitRevs)!
+  const revsByUnit = new Map<string, Record<string, string>>()
+  const seenRevs = new Set<string>()
+
+  wb.get(SHEET.unitRevs)!
+    .slice(1)
+    .forEach((row, i) => {
+      const where = `${SHEET.unitRevs} row ${i + 2}`
+      if (row.every((c) => !c.trim())) return
+
+      const id = cell(row, rIdx, 'unit_id')
+      const code = normaliseSubCode(cell(row, rIdx, 'sub_code'))
+      const part = cell(row, rIdx, 'part_id')
+      const rev = cell(row, rIdx, 'rev')
+
+      if (!roster.has(id)) {
+        errors.push({
+          code: 'E-UNIT-UNKNOWN',
+          message: `${where}: "${id}" is not a machine in this fleet.`,
+          where,
+        })
+        return
+      }
+      if (!declaredCodes.has(code)) {
+        errors.push({
+          code: 'E-SUB-UNKNOWN',
+          message: `${where}: sub_code "${code}" is not declared on "${SHEET.subassemblies}".`,
+          where,
+        })
+        return
+      }
+      if (!byCode.get(code)?.some((p) => partId(p) === part)) {
+        errors.push({
+          code: 'E-REV-ORPHAN',
+          message: `${where}: no part with part_id "${part}" exists under ${code} on "${SHEET.parts}". A machine revision must point at a part in the same file.`,
+          where,
+        })
+        return
+      }
+
+      const lineKey = `${code}:${part}`
+      const dupKey = `${id}|${lineKey}`
+      if (seenRevs.has(dupKey)) {
+        errors.push({
+          code: 'E-REV-DUPLICATE',
+          message: `${where}: ${id} already has a revision for ${part} on an earlier row. One row per machine and part.`,
+          where,
+        })
+        return
+      }
+      seenRevs.add(dupKey)
+
+      // Blank means "no override" — the row is just left over.
+      if (!rev) return
+
+      const fitted = (unitOverrides[id]?.subs ?? defaultSubs(id)).includes(code)
+      if (!fitted) {
+        warnings.push({
+          code: 'W-REV-UNFITTED',
+          message: `${where}: ${id} is not fitted with ${subName(code, ctx.overrides)}, so this revision has nothing to apply to. It is kept in case the subassembly is fitted later.`,
+          where,
+        })
+      }
+
+      revsByUnit.set(id, { ...revsByUnit.get(id), [lineKey]: rev })
+    })
+
+  for (const [id, revs] of revsByUnit) {
+    unitOverrides[id] = { ...unitOverrides[id], revs }
+  }
 
   const missingUnits = ctx.fleet.filter((u) => !seenUnits.has(u.id)).map((u) => u.id)
   if (missingUnits.length) {

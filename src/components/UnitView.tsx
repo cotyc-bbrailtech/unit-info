@@ -173,11 +173,15 @@ function DetailPanel({
   const b = badge(rec.status)
   const editPart = useStore((s) => s.editPart)
   const removePart = useStore((s) => s.removePart)
+  const setUnitRev = useStore((s) => s.setUnitRev)
   const pid = partId(line)
 
   // The Vue revision and the byRev variant come from the machine, so those
-  // fields aren't the part's to edit.
+  // fields aren't the part's to edit at master level.
   const revFromMachine = !!(rawPart?.slot === 'vue' || rawPart?.byRev)
+  const unitRev = unit.revs?.[line.key] ?? ''
+  /** What this line would read if the per-machine revision were cleared. */
+  const inheritedRev = revFromMachine ? (unit.vueRev ?? rawPart?.rev ?? '') : (rawPart?.rev ?? '')
 
   return (
     <>
@@ -237,12 +241,45 @@ function DetailPanel({
           </div>
           {revFromMachine && (
             <div className="admin-note text-muted">
-              Revision comes from this machine's Vue system, not the part.
+              Revision comes from this machine's Vue system, not the part. Set one below to
+              override it on this machine.
             </div>
           )}
           <button className="btn btn-secondary btn-block" onClick={() => removePart(line.sub, pid)}>
             Remove part from {line.subName}
           </button>
+        </div>
+      )}
+
+      {admin && rawPart && (
+        <div className="admin-block admin-unit-only blueprint">
+          <Corners />
+          <div className="admin-block-title">Revision · {unit.id} only</div>
+          <div className="field">
+            <label htmlFor="au-rev">Revision on this machine</label>
+            <input
+              id="au-rev"
+              className="input"
+              value={unitRev}
+              placeholder={`${inheritedRev || 'none'} — from ${revFromMachine ? "the machine's Vue system" : 'the master part'}`}
+              onChange={(e) => setUnitRev(unit.id, line.key, e.target.value)}
+            />
+          </div>
+          <div className="admin-note text-muted">
+            {unitRev ? (
+              <>
+                This machine is on rev {unitRev}; every other machine carrying {line.subName} stays
+                on {inheritedRev || 'the master revision'}. Clear the field to put it back.
+                {rawPart.byRev && ' The variant fitted follows this revision.'}
+              </>
+            ) : (
+              <>
+                Leave blank and this machine follows{' '}
+                {revFromMachine ? "its Vue system's revision" : 'the master part'}. Fill it in only
+                when this one machine genuinely carries a different revision.
+              </>
+            )}
+          </div>
         </div>
       )}
 
@@ -273,7 +310,10 @@ function DetailPanel({
       </div>
 
       <div className="field-grid">
-        <Meta label="Revision" value={`rev ${line.rev}`} />
+        <Meta
+          label="Revision"
+          value={`rev ${line.rev}${unit.revs?.[line.key] ? ' · this machine only' : ''}`}
+        />
         <Meta label="Location on unit" value={line.loc} />
         <Meta label="Subassembly" value={line.subName} />
       </div>

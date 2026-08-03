@@ -302,6 +302,59 @@ describe('fitment', () => {
   })
 })
 
+describe('a revision unique to one machine', () => {
+  const FRONT = 'RG:DMF-1650-F'
+
+  it('changes that machine only', () => {
+    s().setUnitRev('T-16', FRONT, 'E')
+    expect(unit('T-16').lines.find((l) => l.key === FRONT)!.rev).toBe('E')
+    expect(unit('T-18').lines.find((l) => l.key === FRONT)!.rev).toBe('D')
+  })
+
+  it('clears back to the master revision, and drops the override entirely', () => {
+    s().setUnitRev('T-16', FRONT, 'E')
+    s().setUnitRev('T-16', FRONT, '')
+    expect(unit('T-16').lines.find((l) => l.key === FRONT)!.rev).toBe('D')
+    expect(s().overrides.units['T-16']).toBeUndefined()
+  })
+
+  it('trims, and treats whitespace as clearing', () => {
+    s().setUnitRev('T-16', FRONT, '  E  ')
+    expect(unit('T-16').lines.find((l) => l.key === FRONT)!.rev).toBe('E')
+    s().setUnitRev('T-16', FRONT, '   ')
+    expect(unit('T-16').lines.find((l) => l.key === FRONT)!.rev).toBe('D')
+  })
+
+  it('does not disturb the machine’s other overrides', () => {
+    s().editUnit('T-16', { vin: 'KEEP-VIN' })
+    s().setUnitRev('T-16', FRONT, 'E')
+    expect(unit('T-16').vin).toBe('KEEP-VIN')
+    s().setUnitRev('T-16', FRONT, '')
+    expect(unit('T-16').vin).toBe('KEEP-VIN')
+  })
+
+  it('beats the machine Vue revision, and takes the variant with it', () => {
+    // T-53's Vue system is rev B — its camera is the IDS rolling shutter.
+    expect(unit('T-53').lines.find((l) => l.part === 'VT-4110-02')!.desc).toContain('IDS')
+    s().setUnitRev('T-53', 'VT:VT-4110-02', 'A')
+    const cam = unit('T-53').lines.find((l) => l.part === 'VT-4110-02')!
+    expect(cam.rev).toBe('A')
+    expect(cam.desc).toContain('Basler')
+  })
+
+  it('leaves the master part alone', () => {
+    s().setUnitRev('T-16', FRONT, 'E')
+    expect(partsFor('RG', s().overrides).find((p) => partId(p) === 'DMF-1650-F')!.rev).toBe('D')
+    expect(s().overrides.subs.RG).toBeUndefined()
+  })
+
+  it('does not move any record key', () => {
+    const before = unit('T-16').lines.map((l) => l.key)
+    s().setUnitRev('T-16', FRONT, 'E')
+    expect(unit('T-16').lines.map((l) => l.key)).toEqual(before)
+  })
+})
+
 describe('machine identity', () => {
   it('overrides the VIN without touching the source data', () => {
     s().editUnit('T-16', { vin: 'CORRECTED-VIN-1' })

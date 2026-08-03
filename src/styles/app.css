@@ -360,6 +360,12 @@ a:hover {
   font-size: 11.5px;
   text-wrap: pretty;
 }
+/* Machine-scoped edits read as a line drawing rather than a filled block, so
+   they never look like the master-list surface sitting above them. */
+.admin-unit-only {
+  background: transparent;
+  border-style: dashed;
+}
 .admin-unit-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));

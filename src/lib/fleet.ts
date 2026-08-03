@@ -74,15 +74,22 @@ export function linesFor(unit: Omit<Unit, 'lines'>, overrides: Overrides = EMPTY
   return unit.subs.flatMap((code) => {
     const name = subName(code, overrides)
     return partsFor(code, overrides).map((p) => {
-      // The Vue system's revision is per machine, not per part number — it also
-      // decides which variant of a byRev part is actually fitted.
-      const revFromMachine = p.slot === 'vue' || p.byRev
-      const rev = revFromMachine ? (unit.vueRev ?? p.rev) : p.rev
+      const key = `${code}:${partId(p)}`
+
+      // Revision precedence, most specific first:
+      //   1. a revision an admin set for this machine alone
+      //   2. the machine's Vue revision, for parts the Vue system drives
+      //   3. the master part's own revision
+      // The byRev variant follows whichever wins, because rev is what selects
+      // it — so an admin correcting a revision also corrects which part the
+      // audit tells someone to look for.
+      const vueDriven = p.slot === 'vue' || !!p.byRev
+      const rev = unit.revs?.[key] ?? (vueDriven ? (unit.vueRev ?? p.rev) : p.rev)
       const variant = p.byRev?.[rev]
 
       return {
         ...p,
-        key: `${code}:${partId(p)}`,
+        key,
         sub: code,
         subName: name,
         serial: p.slot ? unit.serials[p.slot] : '',
@@ -112,6 +119,7 @@ export function buildFleet(overrides: Overrides = EMPTY_OVERRIDES, csv: string =
         ...o?.serials,
       },
       vueRev: vue?.rev,
+      revs: o?.revs,
       lastAudit: days > 170 ? 'never' : `${days}d ago`,
     }
     return { ...base, lines: linesFor(base, overrides) }

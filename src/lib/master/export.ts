@@ -16,6 +16,7 @@ import {
   SCHEMA_VERSION,
   SHEET,
   SUBASSEMBLIES_COLUMNS,
+  UNIT_REVS_COLUMNS,
   unitsColumns,
   VARIANTS_COLUMNS,
   VUE_COLUMNS,
@@ -108,6 +109,28 @@ export function buildMasterSheets(input: ExportInput): SheetSpec[] {
     ]),
   )
 
+  // Sparse: only the machines that actually differ from the master list.
+  const unitRevRows = fleet.flatMap((u) =>
+    Object.entries(u.revs ?? {}).flatMap(([lineKey, rev]) => {
+      const line = u.lines.find((l) => l.key === lineKey)
+      const [subCode, id] = [lineKey.slice(0, lineKey.indexOf(':')), lineKey.slice(lineKey.indexOf(':') + 1)]
+      const master = partsFor(subCode, overrides).find((p) => partId(p) === id)
+      // A revision pinned to a part or subassembly that no longer exists is
+      // kept rather than dropped, so an export never silently loses one.
+      return [
+        [
+          u.id,
+          subCode,
+          id,
+          rev,
+          line?.part ?? master?.part ?? '',
+          master?.rev ?? '',
+          subName(subCode, overrides),
+        ],
+      ]
+    }),
+  )
+
   const vueRows = VUE_UNITS.map((v) => [
     v.serial,
     v.license,
@@ -150,8 +173,8 @@ export function buildMasterSheets(input: ExportInput): SheetSpec[] {
     ],
     [
       'editable',
-      'sheets 1, 2, 3 and 4',
-      '1 Subassemblies (which subassemblies exist, and their names), 2 Parts (the master parts lists), 3 Part Variants (revision-dependent parts), 4 Units (VIN, imported serials, and which subassemblies each machine carries).',
+      'sheets 1, 2, 3, 4 and 7',
+      '1 Subassemblies (which subassemblies exist, and their names), 2 Parts (the master parts lists), 3 Part Variants (revision-dependent parts), 4 Units (VIN, imported serials, and which subassemblies each machine carries), 7 Machine Revisions (a revision for one machine only).',
     ],
     [
       'how_to_add_a_subassembly',
@@ -181,6 +204,7 @@ export function buildMasterSheets(input: ExportInput): SheetSpec[] {
     sheet(SHEET.units, unitsColumns(codes), unitRows),
     sheet(SHEET.lines, LINES_COLUMNS, lineRows),
     sheet(SHEET.vue, VUE_COLUMNS, vueRows),
+    sheet(SHEET.unitRevs, UNIT_REVS_COLUMNS, unitRevRows),
   ]
 }
 

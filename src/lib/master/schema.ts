@@ -15,7 +15,7 @@ export const APP_TAG = 'Unit Info'
  * would be read as "sheet 1 is editable" when its Read Me said it was not, so
  * the version gate rejects it.
  */
-export const SCHEMA_VERSION = 'master-data/2'
+export const SCHEMA_VERSION = 'master-data/3'
 
 export const SHEET = {
   readme: '0 Read Me',
@@ -25,6 +25,7 @@ export const SHEET = {
   units: '4 Units',
   lines: '5 Unit Lines (read-only)',
   vue: '6 Vue Licences (read-only)',
+  unitRevs: '7 Machine Revisions',
 } as const
 
 export const isReadOnlySheet = (name: string): boolean => name.trim().endsWith('(read-only)')
@@ -129,6 +130,22 @@ export const VUE_COLUMNS: Column[] = [
   { header: 'location_estimate', width: 18 },
   { header: 'location_confirmed', width: 19 },
   { header: 'derived_on_machine', width: 18 },
+]
+
+/**
+ * Sparse and editable: one row per machine that carries a different revision of
+ * a part from the master list. A machine with no row simply follows the master
+ * part (or its Vue revision). Deleting a row, or blanking its rev, puts the
+ * machine back.
+ */
+export const UNIT_REVS_COLUMNS: Column[] = [
+  { header: 'unit_id', width: 10 },
+  { header: 'sub_code', width: 10 },
+  { header: 'part_id', width: 18 },
+  { header: 'rev', width: 8 },
+  derived('derived_part_number', 22),
+  derived('derived_master_rev', 18),
+  derived('derived_subassembly', 26),
 ]
 
 export const README_COLUMNS: Column[] = [

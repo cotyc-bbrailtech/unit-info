@@ -14,7 +14,7 @@ import {
   subNameError,
   withIds,
 } from '../lib/overrides'
-import type { Overrides, SubOverride } from '../lib/overrides'
+import type { Overrides, SubOverride, UnitOverride } from '../lib/overrides'
 import type {
   Line,
   PartSpec,
@@ -74,6 +74,8 @@ interface State {
   fitSub: (unitId: string, code: SubCode) => void
   strikeSub: (unitId: string, code: SubCode) => void
   editUnit: (unitId: string, patch: { vin?: string; serials?: Partial<Record<SerialSlot, string>> }) => void
+  /** A revision for this machine alone. Empty clears it back to the master part. */
+  setUnitRev: (unitId: string, lineKey: string, rev: string) => void
   resetOverrides: () => void
   applyMasterData: (overrides: Overrides) => void
 
@@ -99,8 +101,19 @@ function withParts(
   return withSub(o, code, (s) => ({ ...s, parts: fn(s.parts ?? withIds(partsFor(code, o))) }))
 }
 
-function withUnit(o: Overrides, unitId: string, patch: Partial<Overrides['units'][string]>): Overrides {
-  return { ...o, units: { ...o.units, [unitId]: { ...o.units[unitId], ...patch } } }
+/**
+ * Merges a patch into one machine's override, dropping keys that were cleared
+ * and the machine's entry itself once nothing is left. Without the prune an
+ * emptied override lingers as `{}` and the machine still reads as edited.
+ */
+function withUnit(o: Overrides, unitId: string, patch: Partial<UnitOverride>): Overrides {
+  const merged = { ...o.units[unitId], ...patch } as Record<string, unknown>
+  for (const k of Object.keys(merged)) if (merged[k] === undefined) delete merged[k]
+
+  const units = { ...o.units }
+  if (Object.keys(merged).length) units[unitId] = merged as UnitOverride
+  else delete units[unitId]
+  return { ...o, units }
 }
 
 /** What survives a reload. `admin` is absent on purpose — a reload re-locks. */
@@ -206,6 +219,19 @@ export const useStore = create<State>()(
               : {}),
           }),
         })),
+      setUnitRev: (unitId, lineKey, rev) =>
+        set((s) => {
+          const revs = { ...s.overrides.units[unitId]?.revs }
+          // Blank clears it, so the line goes back to the master part (or the
+          // machine's Vue revision) rather than being pinned to an empty string.
+          if (rev.trim()) revs[lineKey] = rev.trim()
+          else delete revs[lineKey]
+          return {
+            overrides: withUnit(s.overrides, unitId, {
+              revs: Object.keys(revs).length ? revs : undefined,
+            }),
+          }
+        }),
       resetOverrides: () => set({ overrides: EMPTY_OVERRIDES }),
 
       // Records are deliberately untouched: they are keyed to part ids, so any
