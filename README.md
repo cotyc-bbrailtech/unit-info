@@ -142,7 +142,11 @@ when an admin clicks Export or Import. An auditor on a phone never fetches it.
 `src/lib/master/__fixtures__/master-excel-roundtrip.xlsx` is the real workbook after a trip
 through **Excel for Windows** — opened, edited in Excel, re-saved. Excel rewrites it into shared
 strings and deflate, so that fixture is what proves the reader handles a real producer rather than
-just its own output. Re-cut it whenever `SCHEMA_VERSION` changes.
+just its own output. Our own writer's output needs no fixture: the tests generate it in memory.
+
+Re-cut it whenever `SCHEMA_VERSION` or the master data changes, or an import of the stale file
+will quietly revert whatever moved on. **Copy it somewhere else before opening it in Excel** —
+Excel writes back to the file it opened, so editing the fixture in place overwrites it.
 
 ### The PIN is not a security control
 
