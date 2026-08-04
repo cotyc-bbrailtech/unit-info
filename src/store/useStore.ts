@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
-import { BASE_FLEET, defaultSubs } from '../lib/fleet'
+import { BASE_FLEET, defaultSubs, normaliseFitment } from '../lib/fleet'
 import { recordKey } from '../lib/records'
 import {
   blankPart,
@@ -13,8 +13,10 @@ import {
   subCodeError,
   subNameError,
   withIds,
+  withUnit,
 } from '../lib/overrides'
-import type { Overrides, SubOverride, UnitOverride } from '../lib/overrides'
+import type { Overrides, SubOverride } from '../lib/overrides'
+import { isUnitId, normaliseVueLocation, vueByUnit, vueSystem, withVue } from '../lib/vue'
 import type {
   Line,
   PartSpec,
@@ -24,6 +26,7 @@ import type {
   SubCode,
   SubKind,
   Unit,
+  VueLicense,
 } from '../lib/types'
 
 export type View = 'fleet' | 'machine' | 'phone' | 'vue' | 'subs'
@@ -86,6 +89,22 @@ interface State {
   revertSub: (code: SubCode) => void
   movePart: (code: SubCode, id: string, delta: -1 | 1) => void
   setVariant: (code: SubCode, id: string, rev: string, variant: string | null) => void
+
+  /**
+   * Puts a Vue system somewhere. A machine id fits Vision to that machine and
+   * gives it the system's serial and revision; any other text is a place; ''
+   * means "not located". A machine carries one system, so this displaces
+   * whatever was on it — the displaced serial comes back so the UI can say so.
+   */
+  assignVue: (serial: string, location: string) => string | null
+  /** Records a system vue-licenses.csv never had. False on a blank or known serial. */
+  addVueSystem: (draft: {
+    serial: string
+    license: VueLicense
+    rev: string
+    location: string
+    notes: string
+  }) => boolean
 }
 
 function withSub(o: Overrides, code: SubCode, fn: (s: SubOverride) => SubOverride): Overrides {
@@ -99,21 +118,6 @@ function withParts(
   fn: (parts: PartSpec[]) => PartSpec[],
 ): Overrides {
   return withSub(o, code, (s) => ({ ...s, parts: fn(s.parts ?? withIds(partsFor(code, o))) }))
-}
-
-/**
- * Merges a patch into one machine's override, dropping keys that were cleared
- * and the machine's entry itself once nothing is left. Without the prune an
- * emptied override lingers as `{}` and the machine still reads as edited.
- */
-function withUnit(o: Overrides, unitId: string, patch: Partial<UnitOverride>): Overrides {
-  const merged = { ...o.units[unitId], ...patch } as Record<string, unknown>
-  for (const k of Object.keys(merged)) if (merged[k] === undefined) delete merged[k]
-
-  const units = { ...o.units }
-  if (Object.keys(merged).length) units[unitId] = merged as UnitOverride
-  else delete units[unitId]
-  return { ...o, units }
 }
 
 /** What survives a reload. `admin` is absent on purpose — a reload re-locks. */
@@ -195,20 +199,22 @@ export const useStore = create<State>()(
           sel: s.sel === `${code}:${id}` ? null : s.sel,
         })),
 
+      // Both normalise afterwards, so a fit or a strike that only restates the
+      // defaults writes no override at all and the machine keeps tracking.
       fitSub: (unitId, code) =>
         set((s) => {
-          const current = s.overrides.units[unitId]?.subs ?? defaultSubs(unitId)
+          const current = s.overrides.units[unitId]?.subs ?? defaultSubs(unitId, s.overrides)
           if (current.includes(code)) return s
-          return { overrides: withUnit(s.overrides, unitId, { subs: [...current, code] }) }
+          const next = withUnit(s.overrides, unitId, { subs: [...current, code] })
+          return { overrides: normaliseFitment(next, unitId) }
         }),
       strikeSub: (unitId, code) =>
         set((s) => {
-          const current = s.overrides.units[unitId]?.subs ?? defaultSubs(unitId)
-          return {
-            overrides: withUnit(s.overrides, unitId, {
-              subs: current.filter((c) => c !== code),
-            }),
-          }
+          const current = s.overrides.units[unitId]?.subs ?? defaultSubs(unitId, s.overrides)
+          const next = withUnit(s.overrides, unitId, {
+            subs: current.filter((c) => c !== code),
+          })
+          return { overrides: normaliseFitment(next, unitId) }
         }),
       editUnit: (unitId, patch) =>
         set((s) => ({
@@ -232,6 +238,50 @@ export const useStore = create<State>()(
             }),
           }
         }),
+      assignVue: (serial, raw) => {
+        const location = normaliseVueLocation(raw)
+        let displaced: string | null = null
+        set((s) => {
+          const from = vueSystem(serial, s.overrides)?.location ?? ''
+          let next = s.overrides
+
+          // A machine carries one system. Move the incumbent off rather than
+          // ending up with two claiming the same machine.
+          if (isUnitId(location)) {
+            const sitting = vueByUnit(s.overrides).get(location)
+            if (sitting && sitting.serial !== serial) {
+              displaced = sitting.serial
+              next = withVue(next, sitting.serial, (v) => ({ ...v, location: '' }))
+            }
+          }
+          next = withVue(next, serial, (v) => ({ ...v, location }))
+
+          // After the vue write, against the NEW overrides — before it,
+          // defaultSubs is still the old value and the pin would survive.
+          for (const id of [from, location, displaced ?? ''].filter(isUnitId)) {
+            next = normaliseFitment(next, id)
+          }
+          return { overrides: next }
+        })
+        return displaced
+      },
+      addVueSystem: ({ serial, license, rev, location, notes }) => {
+        const id = serial.trim()
+        if (!id || vueSystem(id, get().overrides)) return false
+        set((s) => {
+          let next = withVue(s.overrides, id, () => ({
+            license,
+            rev: rev.trim(),
+            location: normaliseVueLocation(location),
+            notes: notes.trim(),
+          }))
+          const at = normaliseVueLocation(location)
+          if (isUnitId(at)) next = normaliseFitment(next, at)
+          return { overrides: next }
+        })
+        return true
+      },
+
       resetOverrides: () => set({ overrides: EMPTY_OVERRIDES }),
 
       // Records are deliberately untouched: they are keyed to part ids, so any

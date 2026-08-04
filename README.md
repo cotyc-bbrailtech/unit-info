@@ -96,7 +96,7 @@ order:
 | `3 Part Variants` | **Editable.** Revision-dependent parts (the rev A / rev B camera). |
 | `4 Units` | **Editable.** Per machine: VIN, imported serials, and an `X` per fitted subassembly. |
 | `5 Unit Lines (read-only)` | Every machine's full line list, flattened. What the audit walks. |
-| `6 Vue Licences (read-only)` | The Apera Vue inventory. |
+| `6 Vue Licences` | **Editable.** The Apera Vue inventory. Type a machine id into `location` to put a system on that machine. |
 | `7 Machine Revisions` | **Editable.** Sparse — one row per machine carrying a different revision of a part. |
 
 The `fit_*` columns on `4 Units` are generated from whatever subassemblies exist, so creating one
@@ -115,6 +115,10 @@ part. The Read Me sheet says so; `2 Parts` shows the id greyed beside the editab
 mark absent from the file is removed. There is no undo; export first if you want a way back.
 Two things temper that:
 
+- **One older schema is still readable.** The current schema is `master-data/4`; a `master-data/3`
+  file still imports, because only sheet 6 changed and refusing it would strand fitment work that
+  exists nowhere else. It carries no assignments, so the ones already in the app are kept rather
+  than cleared, and the importer warns. Export a fresh file afterwards to move to v4.
 - **It validates before it writes.** Wrong provenance, unknown schema version, a missing sheet or
   column, an unknown `sub_code` or `serial_slot`, a duplicate `part_id`, a blank `part_number`, an
   orphan variant, an unknown machine, or a *missing* machine — any of these rejects the whole file
@@ -154,6 +158,9 @@ just its own output. Our own writer's output needs no fixture: the tests generat
 Re-cut it whenever `SCHEMA_VERSION` or the master data changes, or an import of the stale file
 will quietly revert whatever moved on. **Copy it somewhere else before opening it in Excel** —
 Excel writes back to the file it opened, so editing the fixture in place overwrites it.
+
+`master-v3.xlsx` beside it is a real `master-data/3` export, kept deliberately stale: it is what
+proves the previous schema still imports. Never re-cut that one.
 
 ### Subassembly design page
 
@@ -221,8 +228,28 @@ and that is where a genuine permission boundary belongs.
 
 ## Vision systems
 
-Which machines carry a vision system comes from the Apera Vue licence data, not from the app.
-Of 18 Vue systems, **5 sit on a machine**:
+Which machines carry a vision system follows from **where each Vue system is**. Assigning a
+system to a machine is one act that drives three things: the vision subassembly is fitted, the
+machine's Vue serial is set, and its parts take the system's revision (which is what picks the
+camera). There is one source of truth, and it is the location on the system.
+
+Assign from either the machine's page or the Vue licences page — both go through `assignVue`.
+A system can only be in one place, so assigning one that is already on a machine moves it, and
+the confirm text says so before you commit.
+
+**Taking a system off branches on how the fitment got there**, and the confirm text states which:
+a machine fitted by hand keeps its vision subassembly and joins the list of machines with no
+system; a machine that had vision only because a system was on it loses it, because the reason
+is gone. `normaliseFitment` is what makes this fall out rather than be special-cased — it drops
+a hand-fitted pin once that pin is set-equal to what assignment now derives, so the machine
+starts tracking again, and keeps the pin when it differs so hand-work is never destroyed.
+
+The Vue licences page carries a **reconciliation table**, shown only when something disagrees:
+machines carrying vision with no system, two systems claiming one machine, and locations naming
+a machine that isn't in the fleet. With the shipped data it renders nothing; it appears the
+moment a hand-fitted machine has no system, which is exactly when it is true.
+
+Of 18 Vue systems, as shipped **5 sit on a machine**:
 
 - **T-50, T-32, T-36, T-34** — Tie Detection, Rev A, Basler camera. All four are *location
   estimates* the sheet never confirmed, so they import as "not yet confirmed on the machine"
@@ -238,6 +265,13 @@ have no location recorded at all — that is the backlog, and the Vue licences v
 serial in it, all of which are 2022 or 2023. So the sheet is not a complete inventory. Treat the
 nine unlocated rows as a floor, not the full backlog: there are likely other systems missing from
 it entirely, and reconciling that is worth doing before trusting the counts above.
+
+That is why an admin can **add** a system the sheet never had, from the Vue page footer or from
+the assign dialog itself — the moment you discover the sheet is short is the moment you are
+trying to assign and cannot find it. An added system is marked "added here". A serial that does
+not read `000-YYYYMMDD-NNNN` is warned about but accepted: the pattern is inferred from one
+vendor's incomplete sheet, and blocking on it is what produced hand-fitted subassemblies in the
+first place. Duplicate serials *are* blocked — that failure is identity-shaped.
 
 ### Tie Detection parts
 

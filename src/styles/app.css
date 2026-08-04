@@ -601,6 +601,122 @@ a:hover {
   padding-top: var(--space-3);
 }
 
+/* — Vue licences: reconciliation, inline assignment, the picker —
+   The inventory table becomes a form in admin, so its rows stop being click
+   targets — the same rule .table-parts states. */
+
+.vue-recon {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  border-color: var(--color-accent);
+}
+.table-gaps th:nth-child(1) { width: 70px; }
+.table-gaps th:nth-child(2) { width: 220px; }
+.table-gaps th:nth-child(4) { width: 150px; }
+
+/* The location select needs more room than the tag it replaces. */
+.table-vue th:nth-child(4) { width: 172px; }
+.table-vue.is-admin tbody tr:hover { background: transparent; }
+.table-vue.is-admin td { padding: 4px var(--space-2); }
+.table-vue.is-admin .input {
+  min-height: 30px;
+  padding: 4px 8px;
+  font-size: 13px;
+}
+.vue-loc-other {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+.serial-input {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+.cell-vue-serial .sub-row-origin {
+  margin-left: var(--space-2);
+}
+
+.vue-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.vue-create {
+  flex: 1;
+  min-width: 0;
+}
+
+.vue-dialog {
+  width: min(560px, 100%);
+}
+.vue-pick-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 46vh;
+  overflow-y: auto;
+  border-top: 1px solid var(--color-divider);
+}
+.vue-pick-group {
+  padding: var(--space-3) var(--space-2) var(--space-1);
+}
+.vue-pick {
+  display: grid;
+  grid-template-columns: 158px 122px 46px minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: center;
+  width: 100%;
+  padding: var(--space-2);
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.vue-pick:hover {
+  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+}
+.vue-pick.is-selected {
+  background: var(--color-accent-100);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+.vue-pick-serial {
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+.vue-pick-rev,
+.vue-pick-where {
+  font-size: 12px;
+}
+.vue-pick-where {
+  text-align: right;
+}
+
+/* Everything one dropdown is about to change, stated before it happens. A
+   dashed accent hairline, the .admin-unit-only grammar for a machine-scoped
+   effect. No registration marks: it is a note inside a framed dialog, not a
+   framed object of its own. */
+.vue-consequence {
+  padding: var(--space-3);
+  border: 1px dashed var(--color-accent);
+  font-size: 12.5px;
+  text-wrap: pretty;
+}
+
+.admin-vue-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.admin-vue-line .cell-vue-serial {
+  font-size: 13px;
+}
+
 /* — master data workbook — */
 .master-actions {
   display: flex;
@@ -860,6 +976,42 @@ a:hover {
   }
   .part-variant-row {
     grid-template-columns: minmax(0, 1fr);
+  }
+  /* The stacked-table rule gives `.table td > div` flex:1, but a <select> and
+     the "other place" row are not divs. */
+  .table-vue.is-admin td > .input,
+  .table-vue.is-admin td > .vue-loc-other {
+    flex: 1;
+  }
+  .table-vue.is-admin td {
+    padding: 5px var(--space-2);
+  }
+  /* The first cell becomes a 20px condensed card title — the origin tag on the
+     serial must not inherit that. */
+  .table-vue td:first-child .tag {
+    font-size: 10px;
+    font-family: var(--font-body);
+  }
+  .table-gaps th:nth-child(4) {
+    width: auto;
+  }
+  .vue-pick {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 2px;
+  }
+  /* The rev is restated in the consequence line below. */
+  .vue-pick-rev {
+    display: none;
+  }
+  .vue-pick-where {
+    grid-column: 1 / -1;
+    text-align: left;
+  }
+  .vue-pick-list {
+    max-height: 40vh;
+  }
+  .admin-vue-line {
+    align-items: flex-start;
   }
   h1 {
     font-size: 30px;

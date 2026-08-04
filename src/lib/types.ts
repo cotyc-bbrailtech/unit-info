@@ -12,6 +12,35 @@ export type SubCode = string
 /** Descriptive. Nothing is fitted or unfitted on the strength of it. */
 export type SubKind = 'common' | 'optional'
 
+export type VueLicense = 'Tie Detection' | 'VGR premium' | 'VGR enterprise' | ''
+
+/** The tiers an admin can pick. `''` stays reachable but is never offered. */
+export const VUE_LICENCES = ['Tie Detection', 'VGR premium', 'VGR enterprise'] as const
+
+/** A row of vue-licenses.csv, exactly as shipped. */
+export interface VueUnit {
+  serial: string
+  license: VueLicense
+  rev: string
+  notes: string
+  /** Where the sheet thinks it is — a unit id, a place, or empty. */
+  locationEstimate: string
+  /** Where it has actually been confirmed. Empty means nobody has checked. */
+  locationConfirmed: string
+}
+
+/** A Vue system resolved against the admin overrides. */
+export interface VueSystem extends VueUnit {
+  /** The location in force: an admin assignment, else confirmed, else estimate. */
+  location: string
+  /** What vue-licenses.csv said, so the screen never loses it. */
+  sheetLocation: string
+  /** True when an admin set the location rather than the sheet. */
+  assigned: boolean
+  /** True when vue-licenses.csv never had this system at all. */
+  added: boolean
+}
+
 export type Status = 'verified' | 'dup' | 'flagged' | 'absent' | 'open'
 
 /** Which per-unit serial from the imported sheet a part carries, if any. */

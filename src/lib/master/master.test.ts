@@ -119,6 +119,7 @@ describe('round-tripping our own export', () => {
     const overrides = {
       subs: { MG: { parts: partsFor('MG', EMPTY_OVERRIDES).slice(0, 2) } },
       units: { 'T-16': { vin: 'EDITED-VIN' } },
+      vue: {},
     }
     const plan = validateWorkbook(await roundTrip(overrides), ctx())
     expect(plan.ok).toBe(true)
@@ -183,6 +184,19 @@ describe('a workbook that has been through real Excel', () => {
     expect(fleet.find((u) => u.id === 'T-16')!.lines.find((l) => l.key === 'MG:MG-3220-04')!.rev).toBe('G')
     // Every other machine keeps the master revision.
     expect(fleet.find((u) => u.id === 'T-19')!.lines.find((l) => l.key === 'RG:DMF-1650-R')!.rev).toBe('D')
+  })
+
+  it('picks up a Vue system assigned inside Excel', async () => {
+    // 000-20220914-0071 is unlocated in the sheet. The fixture puts it on T-16
+    // by typing the machine id into sheet 6's location column in Excel itself,
+    // with fit_VT marked to match.
+    const plan = validateWorkbook(await fixture('master-excel-roundtrip.xlsx'), ctx())
+    expect(plan.errors).toEqual([])
+    expect(plan.overrides.vue['000-20220914-0071']).toEqual({ location: 'T-16' })
+    const t16 = buildFleet(plan.overrides).find((u) => u.id === 'T-16')!
+    expect(t16.subs).toContain('VT')
+    expect(t16.serials.vue).toBe('000-20220914-0071')
+    expect(t16.lines.find((l) => l.key === 'VT:APERA-VUE-TD')!.serial).toBe('000-20220914-0071')
   })
 
   it('puts the fit column after the derived columns, and still reads it', async () => {
@@ -276,7 +290,7 @@ describe('rejecting a workbook', () => {
   it('writes nothing when it rejects', async () => {
     const wb = edit(await roundTrip(), SHEET.parts, 1, 'part_number', '')
     const plan = validateWorkbook(wb, ctx())
-    expect(plan.overrides).toEqual({ subs: {}, units: {} })
+    expect(plan.overrides).toEqual({ subs: {}, units: {}, vue: {} })
   })
 })
 
@@ -534,7 +548,7 @@ describe('rejecting a bad subassembly sheet', () => {
     )
     const plan = validateWorkbook(wb, ctx())
     expectError(plan, 'E-FIT-COLUMN-MISSING')
-    expect(plan.overrides).toEqual({ subs: {}, units: {} })
+    expect(plan.overrides).toEqual({ subs: {}, units: {}, vue: {} })
   })
 })
 
@@ -586,6 +600,7 @@ describe('a revision set for one machine only', () => {
   const withRev = (unitId: string, lineKey: string, rev: string) => ({
     subs: {},
     units: { [unitId]: { revs: { [lineKey]: rev } } },
+    vue: {},
   })
 
   it('exports one sparse row per machine that differs', async () => {
@@ -668,11 +683,288 @@ describe('a revision set for one machine only', () => {
   })
 })
 
+describe('Vue system assignment through the workbook', () => {
+  const SPARE_TD = '000-20220914-0071' // unlocated in the sheet, Tie Detection
+  const T32_SYSTEM = '000-20220920-0094'
+
+  const assigned = (serial: string, location: string) => ({
+    subs: {},
+    units: {},
+    vue: { [serial]: { location } },
+  })
+
+  it('exports the resolved location and what the sheet said', async () => {
+    const wb = await roundTrip(assigned(SPARE_TD, 'T-20'))
+    const rows = wb.get(SHEET.vue)!
+    const at = (h: string) => rows[0].indexOf(h)
+    const row = rows.find((r) => r[at('vue_serial')] === SPARE_TD)!
+    expect(row[at('location')]).toBe('T-20')
+    expect(row[at('derived_location_source')]).toBe('assigned')
+    expect(row[at('derived_sheet_location')]).toBe('')
+    expect(row[at('derived_fits')]).toBe('VT')
+  })
+
+  it('survives a round trip — this is what stops import destroying it', async () => {
+    const plan = validateWorkbook(await roundTrip(assigned(SPARE_TD, 'T-20')), ctx())
+    expect(plan.errors).toEqual([])
+    expect(plan.overrides.vue[SPARE_TD]).toEqual({ location: 'T-20' })
+    const t20 = buildFleet(plan.overrides).find((u) => u.id === 'T-20')!
+    expect(t20.subs).toContain('VT')
+    expect(t20.serials.vue).toBe(SPARE_TD)
+    // The assignment drives fitment, so it must leave no pin behind.
+    expect(plan.overrides.units).toEqual({})
+  })
+
+  it('produces no vue override when nothing was edited', async () => {
+    expect(validateWorkbook(await roundTrip(), ctx()).overrides.vue).toEqual({})
+  })
+
+  /** Puts a system on a machine on sheet 6 AND marks its fit_ cell on sheet 4. */
+  function assignInBook(wb: Workbook, serial: string, unitId: string, code = 'VT'): Workbook {
+    const vue = wb.get(SHEET.vue)!.map((r) => [...r])
+    const vAt = (h: string) => vue[0].indexOf(h)
+    vue.find((r) => r[vAt('vue_serial')] === serial)![vAt('location')] = unitId
+
+    const units = wb.get(SHEET.units)!.map((r) => [...r])
+    const uAt = (h: string) => units[0].indexOf(h)
+    units.find((r) => r[uAt('unit_id')] === unitId)![uAt(`fit_${code}`)] = 'X'
+
+    const out = new Map(wb)
+    out.set(SHEET.vue, vue)
+    out.set(SHEET.units, units)
+    return out
+  }
+
+  it('assigns by typing a machine id into the location column', async () => {
+    const plan = validateWorkbook(assignInBook(await roundTrip(), SPARE_TD, 'T-20'), ctx())
+    expect(plan.errors).toEqual([])
+    const t20 = buildFleet(plan.overrides).find((u) => u.id === 'T-20')!
+    expect(t20.subs).toContain('VT')
+    expect(t20.serials.vue).toBe(SPARE_TD)
+    // Sheet 4 and sheet 6 agree, so no fitment pin is written.
+    expect(plan.overrides.units['T-20']).toBeUndefined()
+  })
+
+  it('leaves the machine unfitted when only sheet 6 says so, and warns', async () => {
+    // Sheet 4 is the authority on fitment. A blank fit_ cell is an explicit
+    // "not fitted", so assigning on sheet 6 alone records the serial and says
+    // the two disagree rather than silently fitting the machine.
+    const wb = await roundTrip()
+    const rows = wb.get(SHEET.vue)!.map((r) => [...r])
+    const at = (h: string) => rows[0].indexOf(h)
+    rows.find((r) => r[at('vue_serial')] === SPARE_TD)![at('location')] = 'T-20'
+    const out = new Map(wb)
+    out.set(SHEET.vue, rows)
+
+    const plan = validateWorkbook(out, ctx())
+    expect(plan.errors).toEqual([])
+    expect(plan.warnings.map((w) => w.code)).toContain('W-VUE-UNFITTED')
+    expect(buildFleet(plan.overrides).find((u) => u.id === 'T-20')!.subs).not.toContain('VT')
+  })
+
+  it('un-assigns when the location cell is cleared', async () => {
+    // Clear T-32's system, and unmark its fitment to match.
+    const wb = await roundTrip()
+    const vue = wb.get(SHEET.vue)!.map((r) => [...r])
+    const vAt = (h: string) => vue[0].indexOf(h)
+    vue.find((r) => r[vAt('vue_serial')] === T32_SYSTEM)![vAt('location')] = ''
+    const units = wb.get(SHEET.units)!.map((r) => [...r])
+    const uAt = (h: string) => units[0].indexOf(h)
+    units.find((r) => r[uAt('unit_id')] === 'T-32')![uAt('fit_VT')] = ''
+    const out = new Map(wb)
+    out.set(SHEET.vue, vue)
+    out.set(SHEET.units, units)
+
+    const plan = validateWorkbook(out, ctx())
+    expect(plan.ok).toBe(true)
+    expect(plan.overrides.vue[T32_SYSTEM]).toEqual({ location: '' })
+    expect(buildFleet(plan.overrides).find((u) => u.id === 'T-32')!.subs).not.toContain('VT')
+    expect(plan.overrides.units['T-32']).toBeUndefined()
+  })
+
+  it('adds a system the sheet never had', async () => {
+    const wb = addRow(await roundTrip(), SHEET.vue, {
+      vue_serial: '000-20250101-0001',
+      licence: 'Tie Detection',
+      revision: 'B',
+      location: 'T-20',
+    })
+    const plan = validateWorkbook(assignInBook(wb, '000-20250101-0001', 'T-20'), ctx())
+    expect(plan.errors).toEqual([])
+    const t20 = buildFleet(plan.overrides).find((u) => u.id === 'T-20')!
+    expect(t20.serials.vue).toBe('000-20250101-0001')
+    // Rev B, so the camera is the IDS rather than the Basler.
+    expect(t20.lines.find((l) => l.part === 'VT-4110-02')!.desc).toContain('IDS')
+  })
+
+  it('writes no fitment pin when sheet 4 and sheet 6 agree', async () => {
+    // A machine hand-fitted before any assignment carries a pin. Exporting it
+    // marks fit_VT on sheet 4; assigning a system on sheet 6 then makes the two
+    // agree, so the round trip HEALS the pin.
+    const pinned = {
+      subs: {},
+      units: { 'T-20': { subs: ['RG', 'LD', 'MG', 'VT'] } },
+      vue: {},
+    }
+    const wb = await roundTrip(pinned)
+    const rows = wb.get(SHEET.vue)!.map((r) => [...r])
+    const at = (h: string) => rows[0].indexOf(h)
+    rows.find((r) => r[at('vue_serial')] === SPARE_TD)![at('location')] = 'T-20'
+    const out = new Map(wb)
+    out.set(SHEET.vue, rows)
+
+    const plan = validateWorkbook(out, { fleet: buildFleet(pinned), overrides: pinned, records: {} })
+    expect(plan.errors).toEqual([])
+    expect(plan.overrides.units['T-20']).toBeUndefined()
+    expect(buildFleet(plan.overrides).find((u) => u.id === 'T-20')!.subs).toContain('VT')
+  })
+
+  it('warns when a machine carries vision with no system', async () => {
+    const pinned = { subs: {}, units: { 'T-20': { subs: ['RG', 'LD', 'MG', 'VT'] } }, vue: {} }
+    const plan = validateWorkbook(await roundTrip(pinned), {
+      fleet: buildFleet(pinned),
+      overrides: pinned,
+      records: {},
+    })
+    expect(plan.ok).toBe(true)
+    expect(plan.warnings.map((w) => w.code)).toContain('W-VUE-VISION-NO-SYSTEM')
+  })
+
+  it('warns when a system sits on a machine that is not fitted with vision', async () => {
+    const wb = await roundTrip(assigned(SPARE_TD, 'T-20'))
+    const rows = wb.get(SHEET.units)!.map((r) => [...r])
+    const at = (h: string) => rows[0].indexOf(h)
+    rows.find((r) => r[at('unit_id')] === 'T-20')![at('fit_VT')] = ''
+    const out = new Map(wb)
+    out.set(SHEET.units, rows)
+    expect(validateWorkbook(out, ctx()).warnings.map((w) => w.code)).toContain('W-VUE-UNFITTED')
+  })
+
+  it('turns away a blank Vue serial', async () => {
+    const wb = edit(await roundTrip(), SHEET.vue, 1, 'vue_serial', '')
+    expect(validateWorkbook(wb, ctx()).errors.map((e) => e.code)).toContain('E-VUE-SERIAL-BLANK')
+  })
+
+  it('turns away two systems on the same machine', async () => {
+    const wb = await roundTrip()
+    const rows = wb.get(SHEET.vue)!.map((r) => [...r])
+    const at = (h: string) => rows[0].indexOf(h)
+    rows.find((r) => r[at('vue_serial')] === SPARE_TD)![at('location')] = 'T-32'
+    const out = new Map(wb)
+    out.set(SHEET.vue, rows)
+    expect(validateWorkbook(out, ctx()).errors.map((e) => e.code)).toContain('E-VUE-UNIT-TAKEN')
+  })
+
+  it('turns away a system on a machine that is not in the fleet', async () => {
+    const wb = edit(await roundTrip(), SHEET.vue, 1, 'location', 'T-999')
+    expect(validateWorkbook(wb, ctx()).errors.map((e) => e.code)).toContain('E-VUE-UNIT-UNKNOWN')
+  })
+
+  it('turns away an unknown licence', async () => {
+    const wb = edit(await roundTrip(), SHEET.vue, 1, 'licence', 'Tie Detexion')
+    expect(validateWorkbook(wb, ctx()).errors.map((e) => e.code)).toContain('E-VUE-LICENCE-UNKNOWN')
+  })
+
+  it('turns away a duplicated Vue serial', async () => {
+    const wb = new Map(await roundTrip())
+    const rows = [...wb.get(SHEET.vue)!]
+    rows.push([...rows[1]])
+    wb.set(SHEET.vue, rows)
+    expect(validateWorkbook(wb, ctx()).errors.map((e) => e.code)).toContain('E-VUE-DUPLICATE')
+  })
+
+  it('turns away a deleted row for a system from the licence notes', async () => {
+    const wb = new Map(await roundTrip())
+    wb.set(SHEET.vue, wb.get(SHEET.vue)!.slice(0, -1))
+    const plan = validateWorkbook(wb, ctx())
+    expect(plan.errors.map((e) => e.code)).toContain('E-VUE-ROSTER-INCOMPLETE')
+    expect(plan.overrides).toEqual({ subs: {}, units: {}, vue: {} })
+  })
+
+  it('drops an admin-added system when its row is deleted, and says so', async () => {
+    const added = {
+      subs: {},
+      units: {},
+      vue: { '000-20250101-0001': { location: 'T-20', license: 'Tie Detection' as const, rev: 'A' } },
+    }
+    const wb = new Map(await roundTrip(added))
+    wb.set(SHEET.vue, wb.get(SHEET.vue)!.filter((r, i) => i === 0 || r[0] !== '000-20250101-0001'))
+    const plan = validateWorkbook(wb, { fleet: buildFleet(added), overrides: added, records: {} })
+    expect(plan.ok).toBe(true)
+    expect(plan.warnings.map((w) => w.code)).toContain('W-VUE-DROPPED')
+    expect(plan.overrides.vue['000-20250101-0001']).toBeUndefined()
+  })
+
+  it('keeps a hand fitment the licence disagrees with, and says so', async () => {
+    const mixed = {
+      subs: {},
+      units: { 'T-20': { subs: ['RG', 'LD', 'MG', 'VG'] } },
+      vue: { [SPARE_TD]: { location: 'T-20' } },
+    }
+    const plan = validateWorkbook(await roundTrip(mixed), {
+      fleet: buildFleet(mixed),
+      overrides: mixed,
+      records: {},
+    })
+    expect(plan.ok).toBe(true)
+    expect(plan.warnings.map((w) => w.code)).toContain('W-VUE-FITMENT-MISMATCH')
+    expect(buildFleet(plan.overrides).find((u) => u.id === 'T-20')!.subs).toContain('VG')
+  })
+
+  it('moving a system off a machine takes its sheet-derived vision with it', async () => {
+    const wb = await roundTrip(assigned(T32_SYSTEM, 'Office'))
+    const plan = validateWorkbook(wb, ctx())
+    expect(plan.ok).toBe(true)
+    expect(buildFleet(plan.overrides).find((u) => u.id === 'T-32')!.subs).not.toContain('VT')
+  })
+})
+
 describe('the confirmation an admin sees', () => {
   it('states the scale of the replacement and that it cannot be undone', async () => {
     const wb = edit(await roundTrip(), SHEET.parts, 1, 'description', 'changed')
     const text = confirmText(validateWorkbook(wb, ctx()), 37)
     expect(text).toContain('26 parts become 26')
     expect(text).toContain('cannot be undone')
+  })
+})
+
+describe('a workbook from the previous schema', () => {
+  // A real master-data/3 export, made in this app before sheet 6 became
+  // editable. Refusing it would strand fitment work that exists nowhere else.
+  const v3 = () => fixture('master-v3.xlsx')
+
+  it('is read rather than rejected', async () => {
+    const plan = validateWorkbook(await v3(), ctx())
+    expect(plan.errors.map((e) => e.code)).toEqual([])
+    expect(plan.ok).toBe(true)
+  })
+
+  it('says it is older, and why that matters', async () => {
+    const plan = validateWorkbook(await v3(), ctx())
+    const w = plan.warnings.find((x) => x.code === 'W-SCHEMA-OLDER')!
+    expect(w.message).toContain('master-data/3')
+    expect(w.message).toContain('master-data/4')
+  })
+
+  it('carries the fitment on its sheet 4 — the work that was only in it', async () => {
+    const plan = validateWorkbook(await v3(), ctx())
+    const fleet = buildFleet(plan.overrides)
+    const vision = fleet.filter((u) => u.subs.includes('VT') || u.subs.includes('VG'))
+    expect(vision.length).toBeGreaterThan(BASE_FLEET.filter((u) => u.subs.includes('VT')).length)
+  })
+
+  it('leaves existing assignments alone instead of wiping them', async () => {
+    // The file has no readable sheet 6, and import replaces overrides wholesale.
+    const before = { ...EMPTY_OVERRIDES, vue: { '000-20220914-0071': { location: 'T-22' } } }
+    const plan = validateWorkbook(await v3(), { ...ctx(), overrides: before })
+    expect(plan.overrides.vue['000-20220914-0071']).toEqual({ location: 'T-22' })
+    expect(buildFleet(plan.overrides).find((u) => u.id === 'T-22')!.serials.vue).toBe(
+      '000-20220914-0071',
+    )
+  })
+
+  it('does not report every system as deleted', async () => {
+    const plan = validateWorkbook(await v3(), ctx())
+    expect(plan.warnings.filter((w) => w.code === 'W-VUE-DROPPED')).toEqual([])
   })
 })

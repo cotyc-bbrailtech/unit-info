@@ -9,6 +9,7 @@ import type {
   SubKind,
   Subassembly,
   Unit,
+  VueLicense,
 } from './types'
 
 /**
@@ -29,6 +30,26 @@ export interface Overrides {
    */
   subs: Record<SubCode, SubOverride>
   units: Record<string, UnitOverride>
+  /**
+   * Keyed by Vue serial. A key that is also in vue-licenses.csv patches that
+   * row; one that isn't is a system an admin added. Keyed by the system rather
+   * than the machine because location is the system's property — a serial can
+   * only appear once, so a system cannot be in two places at all.
+   */
+  vue: Record<string, VueOverride>
+}
+
+export interface VueOverride {
+  /**
+   * Where the system is: a unit id like "T-32" fits Vision to that machine, any
+   * other text is a place, "" is "nobody has located it". Read by PRESENCE, not
+   * truthiness — an explicit "" un-assigns a system the sheet had placed, where
+   * `undefined` means "keep tracking vue-licenses.csv".
+   */
+  location?: string
+  license?: VueLicense
+  rev?: string
+  notes?: string
 }
 
 export interface SubOverride {
@@ -48,7 +69,7 @@ export interface UnitOverride {
   revs?: Record<string, string>
 }
 
-export const EMPTY_OVERRIDES: Overrides = { subs: {}, units: {} }
+export const EMPTY_OVERRIDES: Overrides = { subs: {}, units: {}, vue: {} }
 
 /** SUBS keyed loosely, so an unknown code is a miss rather than a type error. */
 const CATALOGUE = SUBS as Record<string, Subassembly | undefined>
@@ -162,6 +183,23 @@ export function subNameError(raw: string): string | null {
   return null
 }
 
+// ── Writers ─────────────────────────────────────────────────────────────────
+
+/**
+ * Merges a patch into one machine's override, dropping keys that were cleared
+ * and the machine's entry itself once nothing is left. Without the prune an
+ * emptied override lingers as `{}` and the machine still reads as edited.
+ */
+export function withUnit(o: Overrides, unitId: string, patch: Partial<UnitOverride>): Overrides {
+  const merged = { ...o.units[unitId], ...patch } as Record<string, unknown>
+  for (const k of Object.keys(merged)) if (merged[k] === undefined) delete merged[k]
+
+  const units = { ...o.units }
+  if (Object.keys(merged).length) units[unitId] = merged as UnitOverride
+  else delete units[unitId]
+  return { ...o, units }
+}
+
 // ── Counts shared with the workbook exporter, so the two cannot drift ───────
 
 export const unitsWith = (code: SubCode, fleet: Unit[]): Unit[] =>
@@ -194,10 +232,10 @@ interface OverridesV0 {
 export function migrateOverrides(stored: unknown): Overrides {
   const o = (stored ?? {}) as OverridesV0 & Partial<Overrides>
   const units = o.units ?? {}
-  if (o.subs) return { subs: o.subs, units }
+  if (o.subs) return { subs: o.subs, units, vue: o.vue ?? {} }
   const subs: Record<SubCode, SubOverride> = {}
   for (const [code, parts] of Object.entries(o.parts ?? {})) {
     if (parts) subs[code] = { parts }
   }
-  return { subs, units }
+  return { subs, units, vue: o.vue ?? {} }
 }

@@ -1,4 +1,9 @@
+import { useMemo, useState } from 'react'
 import { NOTES } from '../data/subassemblies'
+import { buildFleet } from '../lib/fleet'
+import { vueOn } from '../lib/vue'
+import { AssignVueDialog } from './VueAssign'
+import { removalConsequence } from '../lib/vueCopy'
 import { partId, partsFor, subCodes, subName } from '../lib/overrides'
 import { recordKey, serialOf } from '../lib/records'
 import type { FleetResolution } from '../lib/records'
@@ -179,6 +184,9 @@ function DetailPanel({
   // The Vue revision and the byRev variant come from the machine, so those
   // fields aren't the part's to edit at master level.
   const revFromMachine = !!(rawPart?.slot === 'vue' || rawPart?.byRev)
+  // On a machine with no Vue system the same part falls back to the master
+  // revision, so the copy must not claim a system this machine hasn't got.
+  const revFromVue = revFromMachine && !!unit.vueRev
   const unitRev = unit.revs?.[line.key] ?? ''
   /** What this line would read if the per-machine revision were cleared. */
   const inheritedRev = revFromMachine ? (unit.vueRev ?? rawPart?.rev ?? '') : (rawPart?.rev ?? '')
@@ -241,8 +249,18 @@ function DetailPanel({
           </div>
           {revFromMachine && (
             <div className="admin-note text-muted">
-              Revision comes from this machine's Vue system, not the part. Set one below to
-              override it on this machine.
+              {revFromVue ? (
+                <>
+                  Revision comes from this machine's Vue system, not the part. Set one below to
+                  override it on this machine.
+                </>
+              ) : (
+                <>
+                  This revision follows the machine's Vue system, and {unit.id} has none — so it
+                  falls back to the master part. Assign a system, or set one below for this
+                  machine.
+                </>
+              )}
             </div>
           )}
           <button className="btn btn-secondary btn-block" onClick={() => removePart(line.sub, pid)}>
@@ -261,7 +279,13 @@ function DetailPanel({
               id="au-rev"
               className="input"
               value={unitRev}
-              placeholder={`${inheritedRev || 'none'} — from ${revFromMachine ? "the machine's Vue system" : 'the master part'}`}
+              placeholder={`${inheritedRev || 'none'} — from ${
+                revFromVue
+                  ? "the machine's Vue system"
+                  : revFromMachine
+                    ? `the master part; ${unit.id} has no Vue system`
+                    : 'the master part'
+              }`}
               onChange={(e) => setUnitRev(unit.id, line.key, e.target.value)}
             />
           </div>
@@ -275,7 +299,7 @@ function DetailPanel({
             ) : (
               <>
                 Leave blank and this machine follows{' '}
-                {revFromMachine ? "its Vue system's revision" : 'the master part'}. Fill it in only
+                {revFromVue ? "its Vue system's revision" : 'the master part'}. Fill it in only
                 when this one machine genuinely carries a different revision.
               </>
             )}
@@ -387,6 +411,8 @@ function AdminUnitPanel({ unit }: { unit: Unit }) {
           />
         </div>
       </div>
+      <VueSection unit={unit} />
+
       {unfitted.length > 0 && (
         <div className="admin-fit">
           <span className="meta-label text-muted">Fit a subassembly</span>
@@ -402,6 +428,84 @@ function AdminUnitPanel({ unit }: { unit: Unit }) {
             ))}
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * `serials.vue` is the one identity field this panel could never edit, because
+ * it comes from the Vue sheet. Assigning a system is what fills it — and that
+ * one act also decides the machine's vision fitment and its camera variant.
+ */
+function VueSection({ unit }: { unit: Unit }) {
+  const overrides = useStore((s) => s.overrides)
+  const assignVue = useStore((s) => s.assignVue)
+  const setView = useStore((s) => s.setView)
+  const [assigning, setAssigning] = useState(false)
+
+  const fleet = useMemo(() => buildFleet(overrides), [overrides])
+  const vue = vueOn(unit.id, overrides)
+  const vision = (['VT', 'VG'] as const).filter((c) => unit.subs.includes(c))
+
+  return (
+    <div className="admin-fit admin-vue">
+      <span className="meta-label text-muted">Vue system</span>
+
+      {vue ? (
+        <>
+          <div className="admin-vue-line">
+            <span className="cell-vue-serial">{vue.serial}</span>
+            <span className="tag tag-accent">{vue.license || 'no licence recorded'}</span>
+            <span className="text-muted">rev {vue.rev || '—'}</span>
+            <span className="group-spacer" />
+            <button className="btn btn-secondary btn-tiny" onClick={() => setAssigning(true)}>
+              Change
+            </button>
+            <button className="btn btn-secondary btn-tiny" onClick={() => assignVue(vue.serial, '')}>
+              Take it off
+            </button>
+          </div>
+          <div className="admin-note text-muted">
+            {vision.length
+              ? `Carries ${vision.map((c) => subName(c, overrides)).join(' and ')}. Its Vue serial is ${vue.serial} and the vision parts read rev ${vue.rev}.`
+              : `${unit.id} is not fitted with a vision subassembly, so this system's serial has nowhere to show.`}{' '}
+            Take it off and {removalConsequence(vue, overrides)}
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="admin-vue-line">
+            <span className="text-muted">
+              {vision.length ? 'No system on record.' : 'None on this machine.'}
+            </span>
+            <span className="group-spacer" />
+            <button className="btn btn-secondary btn-tiny" onClick={() => setAssigning(true)}>
+              Assign a system
+            </button>
+          </div>
+          <div className="admin-note text-muted">
+            {vision.length ? (
+              <>
+                {unit.id} is fitted with {vision.map((c) => subName(c, overrides)).join(' and ')} and
+                carries no Apera Vue system, so the vision line has no serial and its parts fall back
+                to the master revision. Assign one, or strike it from the group below.{' '}
+                <button className="btn btn-ghost btn-tiny" onClick={() => setView('vue')}>
+                  Vue licences
+                </button>
+              </>
+            ) : (
+              <>
+                No Apera Vue system on this machine, and no vision subassembly fitted. Assigning one
+                fits the subassembly its licence calls for.
+              </>
+            )}
+          </div>
+        </>
+      )}
+
+      {assigning && (
+        <AssignVueDialog unitId={unit.id} fleet={fleet} onClose={() => setAssigning(false)} />
       )}
     </div>
   )

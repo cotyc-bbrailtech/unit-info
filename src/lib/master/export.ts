@@ -2,7 +2,7 @@
  * Builds the master-data workbook. `buildMasterSheets` is pure and fully
  * testable without touching a byte of zip.
  */
-import { VUE_UNITS, isOnMachine, locationOf } from '../vue'
+import { subForLicense, vueSystems } from '../vue'
 import { partId, partsFor, recordsFor, subCodes, subDef, subName, unitsWith } from '../overrides'
 import { recordKey } from '../records'
 import type { Overrides } from '../overrides'
@@ -131,15 +131,27 @@ export function buildMasterSheets(input: ExportInput): SheetSpec[] {
     }),
   )
 
-  const vueRows = VUE_UNITS.map((v) => [
-    v.serial,
-    v.license,
-    v.rev,
-    v.notes,
-    v.locationEstimate,
-    v.locationConfirmed,
-    isOnMachine(v) ? locationOf(v) : '',
-  ])
+  const vueRows = vueSystems(overrides).map((v) => {
+    const source = v.added
+      ? 'added here'
+      : v.assigned
+        ? 'assigned'
+        : v.locationConfirmed
+          ? 'confirmed'
+          : v.locationEstimate
+            ? 'estimate'
+            : ''
+    return [
+      v.serial,
+      v.license,
+      v.rev,
+      v.location,
+      v.notes,
+      source,
+      v.sheetLocation,
+      subForLicense(v.license) ?? '',
+    ]
+  })
 
   const readmeRows: string[][] = [
     ['app', APP_TAG, 'Provenance. The importer rejects any workbook without this exact value.'],
@@ -158,7 +170,7 @@ export function buildMasterSheets(input: ExportInput): SheetSpec[] {
     ],
     [
       'identity_columns',
-      'unit_id, sub_code, part_id',
+      'unit_id, sub_code, part_id, vue_serial',
       'Never edit these. part_id is what audit records are keyed to, so changing it detaches every serial and note already captured against that part. Change part_number instead — that is the human-facing number and is safe to edit. sub_code is part of every record key too, so changing a subassembly code detaches everything captured under it — edit its name instead.',
     ],
     [
@@ -173,13 +185,23 @@ export function buildMasterSheets(input: ExportInput): SheetSpec[] {
     ],
     [
       'editable',
-      'sheets 1, 2, 3, 4 and 7',
-      '1 Subassemblies (which subassemblies exist, and their names), 2 Parts (the master parts lists), 3 Part Variants (revision-dependent parts), 4 Units (VIN, imported serials, and which subassemblies each machine carries), 7 Machine Revisions (a revision for one machine only).',
+      'sheets 1, 2, 3, 4, 6 and 7',
+      '1 Subassemblies (which subassemblies exist, and their names), 2 Parts (the master parts lists), 3 Part Variants (revision-dependent parts), 4 Units (VIN, imported serials, and which subassemblies each machine carries), 6 Vue Licences (which Apera Vue system is on which machine), 7 Machine Revisions (a revision for one machine only).',
     ],
     [
       'how_to_add_a_subassembly',
       `add a row on "${SHEET.subassemblies}"`,
       'Give it a code of 2 to 4 characters starting with a letter, a name, and kind common or optional. Add its parts on "2 Parts" with the same sub_code. The fit_ column for marking machines appears on "4 Units" the next time you export.',
+    ],
+    [
+      'how_to_assign_a_vue_system',
+      `set "location" on "${SHEET.vue}"`,
+      'Type a machine id like T-32 to put the system on that machine — Vision is fitted to it, and its Vue serial and revision follow. Type a place for a system that is off the fleet: Office, Lab, Stock. Leave it blank for one nobody has located yet.',
+    ],
+    [
+      'how_to_add_a_vue_system',
+      `add a row on "${SHEET.vue}"`,
+      'Fill in vue_serial — the serial off the system itself, not one you make up — plus its licence and revision. A serial the licence notes never had is treated as added by hand, and is the only kind you can delete: deleting a row for a system from the notes is rejected.',
     ],
     [
       'how_to_add_a_part',

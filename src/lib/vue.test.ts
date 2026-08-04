@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { BASE_FLEET as FLEET, linesFor } from './fleet'
 import { recordKey, resolveFleet } from './records'
-import { isOnMachine, locationOf, VUE_UNITS } from './vue'
+import { locationOf, VUE_CSV, isUnitId } from './vue'
 
 const unit = (id: string) => FLEET.find((u) => u.id === id)!
 const VUE_TD = 'VT:APERA-VUE-TD'
@@ -21,18 +21,18 @@ describe('Vue licence sheet', () => {
   it('holds every unique system', () => {
     // 17 from the sheet (18 rows, but 000-20230822-0228 is listed twice) plus
     // 000-20240222-0421, which postdates the sheet entirely.
-    expect(VUE_UNITS).toHaveLength(18)
-    expect(new Set(VUE_UNITS.map((v) => v.serial)).size).toBe(18)
+    expect(VUE_CSV).toHaveLength(18)
+    expect(new Set(VUE_CSV.map((v) => v.serial)).size).toBe(18)
   })
 
   it('carries no credentials', () => {
     // The source sheet pairs each system with a TeamViewer ID and password.
     // Neither may reach this bundle — it is served publicly. Asserted by shape
     // so this test never has to hold a real credential either.
-    expect(Object.keys(VUE_UNITS[0]).map((k) => k.toLowerCase())).toEqual(
+    expect(Object.keys(VUE_CSV[0]).map((k) => k.toLowerCase())).toEqual(
       expect.not.arrayContaining(['password', 'teamviewer', 'teamviewerid', 'pass']),
     )
-    for (const v of VUE_UNITS) {
+    for (const v of VUE_CSV) {
       for (const value of Object.values(v)) {
         // TeamViewer IDs are bare 9-10 digit numbers; Vue serials always carry
         // dashes, so nothing legitimate here looks like one.
@@ -42,21 +42,21 @@ describe('Vue licence sheet', () => {
   })
 
   it('parses a quoted field containing a comma', () => {
-    const inop = VUE_UNITS.find((v) => v.serial === '000-20220914-0075')!
+    const inop = VUE_CSV.find((v) => v.serial === '000-20220914-0075')!
     expect(inop.notes).toBe('INOP, power supply')
     expect(inop.locationConfirmed).toBe('Office')
   })
 
   it('prefers a confirmed location over the estimate', () => {
-    const demo = VUE_UNITS.find((v) => v.serial === '000-20220920-0096')!
+    const demo = VUE_CSV.find((v) => v.serial === '000-20220920-0096')!
     expect(demo.locationEstimate).toBe('Office Demo')
     expect(locationOf(demo)).toBe('Office Display')
-    expect(isOnMachine(demo)).toBe(false)
+    expect(isUnitId(locationOf(demo))).toBe(false)
   })
 
   it('splits into 5 on machines, 4 elsewhere, 9 unlocated', () => {
-    const onMachine = VUE_UNITS.filter(isOnMachine)
-    const unlocated = VUE_UNITS.filter((v) => !locationOf(v))
+    const onMachine = VUE_CSV.filter((v) => isUnitId(locationOf(v)))
+    const unlocated = VUE_CSV.filter((v) => !locationOf(v))
     expect(onMachine.map((v) => locationOf(v)).sort()).toEqual([
       'T-32',
       'T-34',
@@ -65,7 +65,7 @@ describe('Vue licence sheet', () => {
       'T-53',
     ])
     expect(unlocated).toHaveLength(9)
-    expect(VUE_UNITS.length - onMachine.length - unlocated.length).toBe(4)
+    expect(VUE_CSV.length - onMachine.length - unlocated.length).toBe(4)
   })
 })
 

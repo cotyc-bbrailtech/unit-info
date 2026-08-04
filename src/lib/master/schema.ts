@@ -10,12 +10,22 @@
 export const APP_TAG = 'Unit Info'
 
 /**
- * v2 made "1 Subassemblies" editable and the fit_ columns dynamic, because an
- * admin can now create a subassembly. A v1 workbook imported under these rules
- * would be read as "sheet 1 is editable" when its Read Me said it was not, so
- * the version gate rejects it.
+ * Bumped whenever a sheet becomes editable or its columns change, because an
+ * older workbook imported under newer rules would be read as editable where its
+ * own Read Me said it was not. v2 opened "1 Subassemblies" and made the fit_
+ * columns dynamic; v3 added "7 Machine Revisions"; v4 opens "6 Vue Licences"
+ * and replaces its estimate/confirmed pair with a single `location`.
  */
-export const SCHEMA_VERSION = 'master-data/3'
+export const SCHEMA_VERSION = 'master-data/4'
+
+/**
+ * Schemas this build still reads. Only sheet 6 changed between v3 and v4, and a
+ * v3 file's sheet 6 was read-only anyway — so a v3 workbook carries no Vue
+ * assignments but every other sheet is byte-identical. Refusing it would strand
+ * work that exists nowhere else, which is the opposite of the point of having
+ * an export. Read v3, warn, and let the next export carry it forward as v4.
+ */
+export const READABLE_SCHEMAS: readonly string[] = [SCHEMA_VERSION, 'master-data/3']
 
 export const SHEET = {
   readme: '0 Read Me',
@@ -24,7 +34,7 @@ export const SHEET = {
   variants: '3 Part Variants',
   units: '4 Units',
   lines: '5 Unit Lines (read-only)',
-  vue: '6 Vue Licences (read-only)',
+  vue: '6 Vue Licences',
   unitRevs: '7 Machine Revisions',
 } as const
 
@@ -122,15 +132,25 @@ export const LINES_COLUMNS: Column[] = [
   { header: 'record_key', width: 34 },
 ]
 
+/**
+ * Editable in v4. `location` IS the assignment: a machine id fits Vision to
+ * that machine and gives it this system's serial and revision. The sheet's
+ * original estimate/confirmed pair collapses into one derived column, so the
+ * admin still sees what the source notes claimed without a precedence rule to
+ * get wrong.
+ */
 export const VUE_COLUMNS: Column[] = [
   { header: 'vue_serial', width: 20 },
   { header: 'licence', width: 17 },
   { header: 'revision', width: 10 },
+  { header: 'location', width: 20 },
   { header: 'notes', width: 30, wrap: true },
-  { header: 'location_estimate', width: 18 },
-  { header: 'location_confirmed', width: 19 },
-  { header: 'derived_on_machine', width: 18 },
+  derived('derived_location_source', 22),
+  derived('derived_sheet_location', 20),
+  derived('derived_fits', 10),
 ]
+
+export const VUE_LICENCE_VALUES = ['Tie Detection', 'VGR premium', 'VGR enterprise'] as const
 
 /**
  * Sparse and editable: one row per machine that carries a different revision of

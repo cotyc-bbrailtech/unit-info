@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { BASE_FLEET, buildFleet, defaultSubs, unitNumber } from './fleet'
+import {
+  BASE_FLEET,
+  buildFleet,
+  defaultSubs,
+  unitNumber,
+  visionWithoutSystem,
+  vueLicenceMismatch,
+} from './fleet'
+import { doubleBooked, vueByUnit, vueSystem } from './vue'
 import { recordKey, resolveFleet } from './records'
 import { ADMIN_PIN, persistedFields, useStore } from '../store/useStore'
 import {
@@ -142,7 +150,7 @@ describe('the subassembly catalogue', () => {
 
   it('survives a machine still fitted with a code that no longer exists', () => {
     useStore.setState({
-      overrides: { subs: {}, units: { 'T-16': { subs: ['RG', 'GONE'] } } },
+      overrides: { subs: {}, units: { 'T-16': { subs: ['RG', 'GONE'] } }, vue: {} },
     })
     const u = unit('T-16')
     expect(u.subs).toContain('GONE')
@@ -215,7 +223,7 @@ describe('creating and renaming subassemblies', () => {
     s().setSubKind('CV', 'common')
     expect(subDef('CV', s().overrides).kind).toBe('common')
     expect(fleetNow().map((u) => u.subs.join())).toEqual(before)
-    for (const u of BASE_FLEET) expect(unit(u.id).subs).toEqual(defaultSubs(u.id))
+    for (const u of BASE_FLEET) expect(unit(u.id).subs).toEqual(defaultSubs(u.id, s().overrides))
   })
 })
 
@@ -260,8 +268,8 @@ describe('stored overrides from before subassemblies were editable', () => {
   })
 
   it('copes with nothing stored at all', () => {
-    expect(migrateOverrides(undefined)).toEqual({ subs: {}, units: {} })
-    expect(migrateOverrides({})).toEqual({ subs: {}, units: {} })
+    expect(migrateOverrides(undefined)).toEqual({ subs: {}, units: {}, vue: {} })
+    expect(migrateOverrides({})).toEqual({ subs: {}, units: {}, vue: {} })
   })
 
   it('degrades to the built-ins when subs is missing entirely', () => {
@@ -279,7 +287,7 @@ describe('fitment', () => {
     expect(unit('T-16').subs).toContain('CV')
     // Every other machine keeps exactly the fitment it was imported with.
     for (const id of ['T-18', 'T-32', 'T-55']) {
-      expect(unit(id).subs).toEqual(defaultSubs(id))
+      expect(unit(id).subs).toEqual(defaultSubs(id, s().overrides))
     }
   })
 
@@ -352,6 +360,160 @@ describe('a revision unique to one machine', () => {
     const before = unit('T-16').lines.map((l) => l.key)
     s().setUnitRev('T-16', FRONT, 'E')
     expect(unit('T-16').lines.map((l) => l.key)).toEqual(before)
+  })
+})
+
+describe('assigning a Vue system to a machine', () => {
+  /** T-32's tie-detection system in the shipped sheet. */
+  const T32_SYSTEM = '000-20220920-0094'
+  /** Unlocated in the sheet, Tie Detection, rev A. */
+  const SPARE_TD = '000-20220914-0071'
+
+  it('fits vision, and carries the serial and revision with it', () => {
+    expect(unit('T-20').subs).not.toContain('VT')
+    s().assignVue(SPARE_TD, 'T-20')
+    const u = unit('T-20')
+    expect(u.subs).toContain('VT')
+    expect(u.serials.vue).toBe(SPARE_TD)
+    expect(u.lines.find((l) => l.key === 'VT:APERA-VUE-TD')!.serial).toBe(SPARE_TD)
+  })
+
+  it('takes vision off the machine it came from', () => {
+    s().assignVue(T32_SYSTEM, 'T-33')
+    expect(unit('T-32').subs).not.toContain('VT')
+    expect(unit('T-32').serials.vue).toBe('')
+    expect(unit('T-33').subs).toContain('VT')
+  })
+
+  it('un-assigns rather than falling back to the sheet', () => {
+    // The presence check. A `||` regression fails only here: '' is falsy, so a
+    // truthiness read would silently restore the sheet's T-32.
+    s().assignVue(T32_SYSTEM, '')
+    expect(vueSystem(T32_SYSTEM, s().overrides)!.location).toBe('')
+    expect(unit('T-32').subs).not.toContain('VT')
+  })
+
+  it('moves a system off the fleet', () => {
+    s().assignVue(T32_SYSTEM, 'Office')
+    expect(unit('T-32').subs).not.toContain('VT')
+    expect(vueByUnit(s().overrides).has('T-32')).toBe(false)
+  })
+
+  it('gives a machine one system, displacing whatever was on it', () => {
+    const displaced = s().assignVue(SPARE_TD, 'T-32')
+    expect(displaced).toBe(T32_SYSTEM)
+    expect(unit('T-32').serials.vue).toBe(SPARE_TD)
+    expect(vueSystem(T32_SYSTEM, s().overrides)!.location).toBe('')
+    expect(doubleBooked(s().overrides)).toEqual([])
+  })
+
+  it('normalises a machine id typed loosely', () => {
+    s().assignVue(SPARE_TD, ' t-20 ')
+    expect(unit('T-20').subs).toContain('VT')
+  })
+
+  it('fits VG for a VGR licence', () => {
+    s().assignVue('000-20230822-0229', 'T-20') // VGR premium
+    expect(unit('T-20').subs).toContain('VG')
+    expect(unit('T-20').subs).not.toContain('VT')
+  })
+
+  it('fits nothing for a system with no licence, but still records the serial', () => {
+    s().assignVue('000-20230822-0228', 'T-20') // blank licence in the sheet
+    expect(unit('T-20').subs).not.toContain('VT')
+    expect(unit('T-20').subs).not.toContain('VG')
+    expect(unit('T-20').serials.vue).toBe('000-20230822-0228')
+  })
+
+  it('records a system the sheet never had', () => {
+    expect(
+      s().addVueSystem({
+        serial: '000-20250101-0001',
+        license: 'Tie Detection',
+        rev: 'B',
+        location: 'T-20',
+        notes: 'found in the shop',
+      }),
+    ).toBe(true)
+    const u = unit('T-20')
+    expect(u.subs).toContain('VT')
+    expect(u.serials.vue).toBe('000-20250101-0001')
+    // Rev B, so the camera is the IDS rather than the Basler.
+    expect(u.lines.find((l) => l.part === 'VT-4110-02')!.desc).toContain('IDS')
+    expect(vueSystem('000-20250101-0001', s().overrides)!.added).toBe(true)
+  })
+
+  it('refuses a serial that is already in the list', () => {
+    expect(
+      s().addVueSystem({ serial: T32_SYSTEM, license: '', rev: '', location: '', notes: '' }),
+    ).toBe(false)
+  })
+})
+
+describe('a machine hand-fitted with vision before a system was assigned', () => {
+  const SPARE_TD = '000-20220914-0071'
+
+  it('keeps the hand fitment while no system is assigned', () => {
+    s().fitSub('T-20', 'VT')
+    expect(unit('T-20').subs).toContain('VT')
+    expect(s().overrides.units['T-20']?.subs).toBeDefined()
+  })
+
+  it('drops the pin the moment an assignment makes it redundant', () => {
+    s().fitSub('T-20', 'VT')
+    s().assignVue(SPARE_TD, 'T-20')
+    // The pin is gone, but the machine still carries vision — and now its serial.
+    expect(s().overrides.units['T-20']).toBeUndefined()
+    expect(unit('T-20').subs).toContain('VT')
+    expect(unit('T-20').serials.vue).toBe(SPARE_TD)
+  })
+
+  it('then tracks: moving the system away takes vision with it', () => {
+    s().fitSub('T-20', 'VT')
+    s().assignVue(SPARE_TD, 'T-20')
+    s().assignVue(SPARE_TD, 'T-22')
+    expect(unit('T-20').subs).not.toContain('VT')
+    expect(unit('T-22').subs).toContain('VT')
+  })
+
+  it('keeps a hand fitment the system was never assigned to', () => {
+    // The "don't destroy what I just did" case: no assignment ever reached it.
+    s().fitSub('T-20', 'VT')
+    s().assignVue(SPARE_TD, 'T-22')
+    expect(unit('T-20').subs).toContain('VT')
+    expect(visionWithoutSystem(fleetNow(), s().overrides).map((g) => g.unitId)).toContain('T-20')
+  })
+
+  it('keeps a hand fitment the licence disagrees with, and reports it', () => {
+    s().fitSub('T-20', 'VG')
+    s().assignVue(SPARE_TD, 'T-20') // a Tie Detection system
+    expect(unit('T-20').subs).toContain('VG')
+    expect(vueLicenceMismatch(fleetNow(), s().overrides)).toEqual([
+      { unitId: 'T-20', serial: SPARE_TD, expected: 'VT', fitted: 'VG' },
+    ])
+  })
+
+  it('strands no record when the pin drops', () => {
+    const key = recordKey('T-20', 'VT:APERA-VUE-TD')
+    const records: Records = { [key]: { serial: 'FIELD-1', status: 'verified' } }
+    s().fitSub('T-20', 'VT')
+    s().assignVue(SPARE_TD, 'T-20')
+    expect(unit('T-20').lines.some((l) => l.key === 'VT:APERA-VUE-TD')).toBe(true)
+    expect(resolveFleet(fleetNow(), records).resolved.get(key)!.serial).toBe('FIELD-1')
+  })
+
+  it('survives a strike', () => {
+    // T-32 has a system from the sheet; striking VT must not be undone.
+    s().strikeSub('T-32', 'VT')
+    expect(unit('T-32').subs).not.toContain('VT')
+    expect(s().overrides.units['T-32']?.subs).toBeDefined()
+  })
+
+  it('writes no override when a fit only restates the default', () => {
+    s().strikeSub('T-32', 'VT')
+    s().fitSub('T-32', 'VT')
+    expect(s().overrides.units['T-32']).toBeUndefined()
+    expect(unit('T-32').subs).toContain('VT')
   })
 })
 

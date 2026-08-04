@@ -19,21 +19,34 @@ import {
   subExists,
   subName,
 } from '../overrides'
-import type { Overrides, SubOverride, UnitOverride } from '../overrides'
-import type { PartSpec, Records, SerialSlot, SubCode, SubKind, Subassembly, Unit } from '../types'
+import type { Overrides, SubOverride, UnitOverride, VueOverride } from '../overrides'
+import type { PartSpec, Records, SerialSlot, SubCode, SubKind, Subassembly, Unit, VueLicense } from '../types'
 import { recordKey } from '../records'
+import {
+  isUnitId,
+  locationOf,
+  normaliseVueLocation,
+  subForLicense,
+  VUE_CSV,
+  VUE_CSV_BY_SERIAL,
+  vueSystem,
+  vueSystems,
+} from '../vue'
 import type { Workbook } from '../xlsx/read'
 import {
   APP_TAG,
   headerIndex,
   isFitted,
   PARTS_COLUMNS,
+  READABLE_SCHEMAS,
   requiredHeaders,
   SCHEMA_VERSION,
   SERIAL_SLOTS,
   SHEET,
   SUBASSEMBLIES_COLUMNS,
   UNIT_REVS_COLUMNS,
+  VUE_COLUMNS,
+  VUE_LICENCE_VALUES,
   SUB_KINDS,
   unitsColumns,
   fitCode,
@@ -80,7 +93,7 @@ export function validateWorkbook(wb: Workbook, ctx: ImportContext): ImportPlan {
     ok: false,
     errors,
     warnings,
-    overrides: { subs: {}, units: {} },
+    overrides: { subs: {}, units: {}, vue: {} },
     confirm: '',
     summary: {
       parts: 0,
@@ -115,13 +128,16 @@ export function validateWorkbook(wb: Workbook, ctx: ImportContext): ImportPlan {
     })
     return empty
   }
-  if (meta.get('schema_version') !== SCHEMA_VERSION) {
+  const version = meta.get('schema_version') ?? ''
+  if (!READABLE_SCHEMAS.includes(version)) {
     errors.push({
       code: 'E-SCHEMA-UNKNOWN',
-      message: `This workbook uses schema ${JSON.stringify(meta.get('schema_version') ?? 'unknown')} but this app reads ${SCHEMA_VERSION}. Export a fresh file and reapply your edits to it.`,
+      message: `This workbook uses schema ${JSON.stringify(version || 'unknown')} but this app reads ${READABLE_SCHEMAS.join(' and ')}. Export a fresh file and reapply your edits to it.`,
     })
     return empty
   }
+  /** An older file this build can read, but which predates editable sheet 6. */
+  const olderSchema = version !== SCHEMA_VERSION
 
   // ── Gate 2: required sheets and columns ───────────────────────────────────
   const need = [
@@ -130,6 +146,8 @@ export function validateWorkbook(wb: Workbook, ctx: ImportContext): ImportPlan {
     { name: SHEET.variants, columns: VARIANTS_COLUMNS },
     // The fit_ columns are dynamic, so only the fixed ones are required here.
     { name: SHEET.units, columns: unitsColumns([]) },
+    // An older file's sheet 6 is named "(read-only)" and has different columns.
+    ...(olderSchema ? [] : [{ name: SHEET.vue, columns: VUE_COLUMNS }]),
     { name: SHEET.unitRevs, columns: UNIT_REVS_COLUMNS },
   ]
   const heads = new Map<string, Map<string, number>>()
@@ -347,10 +365,138 @@ export function validateWorkbook(wb: Workbook, ctx: ImportContext): ImportPlan {
       target.byRev = { ...target.byRev, [rev]: variant }
     })
 
-  // ── Gate 6: units and the fixed roster ────────────────────────────────────
+  // ── Gate 6: Vue systems ───────────────────────────────────────────────────
+  // BEFORE the units gate on purpose: sheet 4's minimal-diff test calls
+  // defaultSubs, which reads the assignments, so they must already be resolved.
+  // That is also what makes a round trip heal a stale fitment pin.
+  const roster = new Map(ctx.fleet.map((u) => [u.id, u]))
+  const vueOverrides: Record<string, VueOverride> = {}
+  const seenVue = new Map<string, number>()
+  const claimedBy = new Map<string, { serial: string; row: number }>()
+
+  if (olderSchema) {
+    // applyMasterData replaces overrides wholesale, so "the file carries none"
+    // would otherwise mean "delete them all". Carry the current ones through:
+    // it keeps the assignments AND keeps defaultSubs honest for sheet 4 below,
+    // so an unchanged fitment column still writes no pin.
+    Object.assign(vueOverrides, ctx.overrides.vue ?? {})
+    warnings.push({
+      code: 'W-SCHEMA-OLDER',
+      message: `This workbook is ${version}, from before Vue systems could be assigned in the sheet. Everything on it is read as usual, but it carries no assignments — so any that are already in the app are left alone rather than cleared. Export a fresh file afterwards to move to ${SCHEMA_VERSION}.`,
+      where: SHEET.readme,
+    })
+  }
+
+  ;(olderSchema ? [] : wb.get(SHEET.vue)!)
+    .slice(1)
+    .forEach((row, i) => {
+      const vIdx6 = heads.get(SHEET.vue)!
+      const where = `${SHEET.vue} row ${i + 2}`
+      if (row.every((c) => !c.trim())) return
+
+      const serial = cell(row, vIdx6, 'vue_serial')
+      if (!serial) {
+        errors.push({
+          code: 'E-VUE-SERIAL-BLANK',
+          message: `${where}: vue_serial is blank. A Vue system is identified by the serial on the system itself — fill it in, or delete the row.`,
+          where,
+        })
+        return
+      }
+      const seenAt = seenVue.get(serial)
+      if (seenAt !== undefined) {
+        errors.push({
+          code: 'E-VUE-DUPLICATE',
+          message: `${where}: vue_serial "${serial}" is already on row ${seenAt}. Each system needs its own row — one system cannot be in two places.`,
+          where,
+        })
+        return
+      }
+      seenVue.set(serial, i + 2)
+
+      const licence = cell(row, vIdx6, 'licence')
+      if (licence && !(VUE_LICENCE_VALUES as readonly string[]).includes(licence)) {
+        errors.push({
+          code: 'E-VUE-LICENCE-UNKNOWN',
+          message: `${where}: licence "${licence}" is not one of ${VUE_LICENCE_VALUES.join(', ')} (or blank for a system whose licence has not been recorded).`,
+          where,
+        })
+        return
+      }
+
+      const location = normaliseVueLocation(cell(row, vIdx6, 'location'))
+      if (isUnitId(location)) {
+        if (!roster.has(location)) {
+          errors.push({
+            code: 'E-VUE-UNIT-UNKNOWN',
+            message: `${where}: "${location}" is not a machine in this fleet. Put a machine id from "${SHEET.units}" in location, or a place name like Office or Stock for a system that is off the fleet.`,
+            where,
+          })
+          return
+        }
+        const holder = claimedBy.get(location)
+        if (holder) {
+          errors.push({
+            code: 'E-VUE-UNIT-TAKEN',
+            message: `${where}: ${location} already has Vue system ${holder.serial} on it, from row ${holder.row}. A machine carries one Vue system — move one of them somewhere else.`,
+            where,
+          })
+          return
+        }
+        claimedBy.set(location, { serial, row: i + 2 })
+      }
+
+      // Minimal diff against the sheet, comparing the RESOLVED location so an
+      // untouched round trip writes nothing.
+      const base = VUE_CSV_BY_SERIAL.get(serial)
+      const rev = cell(row, vIdx6, 'revision')
+      const notes = cell(row, vIdx6, 'notes')
+      const o: VueOverride = {}
+      if (!base) {
+        Object.assign(o, { location, license: licence as VueLicense, rev, notes })
+      } else {
+        if (location !== locationOf(base)) o.location = location
+        if (licence !== base.license) o.license = licence as VueLicense
+        if (rev !== base.rev) o.rev = rev
+        if (notes !== base.notes) o.notes = notes
+      }
+      if (Object.keys(o).length || !base) vueOverrides[serial] = o
+    })
+
+  // An older file has no readable sheet 6 at all, so "absent from it" carries no
+  // meaning — neither the roster check below nor the deletion check after it.
+  const missingVue = olderSchema
+    ? []
+    : VUE_CSV.filter((v) => !seenVue.has(v.serial)).map((v) => v.serial)
+  if (missingVue.length) {
+    errors.push({
+      code: 'E-VUE-ROSTER-INCOMPLETE',
+      message: `"${SHEET.vue}" is missing ${missingVue.length} system${missingVue.length > 1 ? 's' : ''} (${missingVue.slice(0, 5).join(', ')}${missingVue.length > 5 ? ', …' : ''}). Every system from the licence notes needs a row — deleting one would silently put it back where that sheet says it is, so the import is rejected instead.`,
+      where: SHEET.vue,
+    })
+  }
+
+  // An admin-added system the file drops is a real deletion, and permitted.
+  for (const serial of olderSchema ? [] : Object.keys(ctx.overrides.vue ?? {})) {
+    if (seenVue.has(serial) || VUE_CSV_BY_SERIAL.has(serial)) continue
+    const was = vueSystem(serial, ctx.overrides)
+    warnings.push({
+      code: 'W-VUE-DROPPED',
+      message: `Vue system ${serial} was added by hand and is not in this file, so it is removed${
+        was && isUnitId(was.location) ? `, and ${was.location} loses its Vue system` : ''
+      }.`,
+      where: `${SHEET.vue}:${serial}`,
+    })
+  }
+
+  if (errors.length) return empty
+
+  // Everything downstream must resolve fitment against the INCOMING assignments.
+  const vueCtx: Overrides = { subs: {}, units: {}, vue: vueOverrides }
+
+  // ── Gate 7: units and the fixed roster ────────────────────────────────────
   const uIdx = heads.get(SHEET.units)!
   const unitRows = wb.get(SHEET.units)!.slice(1).filter((r) => r.some((c) => c.trim()))
-  const roster = new Map(ctx.fleet.map((u) => [u.id, u]))
   const seenUnits = new Set<string>()
   const unitOverrides: Record<string, UnitOverride> = {}
   let fitmentChanged = 0
@@ -441,7 +587,7 @@ export function validateWorkbook(wb: Workbook, ctx: ImportContext): ImportPlan {
       }
     }
 
-    const base = defaultSubs(id)
+    const base = defaultSubs(id, vueCtx)
     const sameFitment = subs.length === base.length && base.every((c) => subs.includes(c))
     if (!sameFitment) fitmentChanged++
 
@@ -522,7 +668,7 @@ export function validateWorkbook(wb: Workbook, ctx: ImportContext): ImportPlan {
       // Blank means "no override" — the row is just left over.
       if (!rev) return
 
-      const fitted = (unitOverrides[id]?.subs ?? defaultSubs(id)).includes(code)
+      const fitted = (unitOverrides[id]?.subs ?? defaultSubs(id, vueCtx)).includes(code)
       if (!fitted) {
         warnings.push({
           code: 'W-REV-UNFITTED',
@@ -599,13 +745,13 @@ export function validateWorkbook(wb: Workbook, ctx: ImportContext): ImportPlan {
     })
   }
 
-  const nextOverrides: Overrides = { subs, units: unitOverrides }
+  const nextOverrides: Overrides = { subs, units: unitOverrides, vue: vueOverrides }
 
   // Records pointing at part ids the workbook drops. They stay in storage,
   // inert, and come back if the id ever returns — but say so out loud.
   let strandedRecords = 0
   for (const unit of ctx.fleet) {
-    const fitted = unitOverrides[unit.id]?.subs ?? defaultSubs(unit.id)
+    const fitted = unitOverrides[unit.id]?.subs ?? defaultSubs(unit.id, nextOverrides)
     const live = new Set(
       fitted.flatMap((code) =>
         partsFor(code, nextOverrides).map((p) => recordKey(unit.id, `${code}:${partId(p)}`)),
@@ -628,6 +774,55 @@ export function validateWorkbook(wb: Workbook, ctx: ImportContext): ImportPlan {
       message: `Fitment differs from the imported defaults on ${fitmentChanged} of ${ctx.fleet.length} machines. If you sorted "${SHEET.units}" in Excel, check that the fit_ columns still line up with the right unit_id.`,
     })
   }
+  // Vue disagreements. Never fatal — the fitment on sheet 4 is the authority on
+  // what is bolted to a machine; a licence is a statement about entitlement.
+  const nextFleet = ctx.fleet.map((u) => ({
+    ...u,
+    subs: unitOverrides[u.id]?.subs ?? defaultSubs(u.id, nextOverrides),
+  }))
+  for (const [serial, o] of Object.entries(vueOverrides)) {
+    const v = vueSystem(serial, nextOverrides)
+    if (!v || !isUnitId(v.location)) continue
+    const expected = subForLicense(v.license)
+    const unit = nextFleet.find((u) => u.id === v.location)
+    if (!expected) {
+      warnings.push({
+        code: 'W-VUE-NO-LICENCE',
+        message: `${serial} is on ${v.location} but has no licence recorded, so no vision subassembly is fitted and its serial has nowhere to show. Set the licence, or fit vision to ${v.location} by hand on "${SHEET.units}".`,
+        where: `${SHEET.vue}:${serial}`,
+      })
+      continue
+    }
+    const fitted = (['VT', 'VG'] as const).find((c) => unit?.subs.includes(c))
+    if (fitted && fitted !== expected) {
+      warnings.push({
+        code: 'W-VUE-FITMENT-MISMATCH',
+        message: `${v.location} carries ${subName(fitted, nextOverrides)} but ${serial} is a ${v.license} system, which fits ${subName(expected, nextOverrides)}. The fitment on "${SHEET.units}" wins — this file changes nothing about it.`,
+        where: `${SHEET.vue}:${serial}`,
+      })
+    } else if (!fitted) {
+      warnings.push({
+        code: 'W-VUE-UNFITTED',
+        message: `${serial} is on ${v.location}, but ${v.location} is not fitted with ${subName(expected, nextOverrides)} on "${SHEET.units}". Its serial and revision still follow the machine; mark ${fitHeader(expected)} to fit it.`,
+        where: `${SHEET.vue}:${serial}`,
+      })
+    }
+    void o
+  }
+
+  const gaps = nextFleet.filter(
+    (u) =>
+      (u.subs.includes('VT') || u.subs.includes('VG')) &&
+      !vueSystems(nextOverrides).some((v) => v.location === u.id),
+  )
+  if (gaps.length) {
+    warnings.push({
+      code: 'W-VUE-VISION-NO-SYSTEM',
+      message: `${gaps.length} machine${gaps.length > 1 ? 's' : ''} carr${gaps.length > 1 ? 'y' : 'ies'} vision with no Vue system on them (${gaps.slice(0, 5).map((u) => u.id).join(', ')}${gaps.length > 5 ? ', …' : ''}). Give each one a system on "${SHEET.vue}", or their Vue serial and revision stay blank.`,
+      where: SHEET.vue,
+    })
+  }
+
   if (strandedRecords) {
     warnings.push({
       code: 'W-RECORDS-STRANDED',
