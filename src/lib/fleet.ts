@@ -120,7 +120,16 @@ export function linesFor(unit: Omit<Unit, 'lines'>, overrides: Overrides = EMPTY
         subName: name,
         serial: p.slot ? unit.serials[p.slot] : '',
         rev,
-        desc: p.byRev ? `${p.desc} — ${variant ?? `variant not identified for rev ${rev}`}` : p.desc,
+        // A blank rev is its own case: several systems read off machines have
+        // no revision on record, and "not identified for rev " reads as a bug.
+        desc: p.byRev
+          ? `${p.desc} — ${
+              variant ??
+              (rev
+                ? `variant not identified for rev ${rev}`
+                : 'variant unknown, no revision on record')
+            }`
+          : p.desc,
         onRecord: !!p.slot,
       }
     })

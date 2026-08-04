@@ -249,22 +249,48 @@ machines carrying vision with no system, two systems claiming one machine, and l
 a machine that isn't in the fleet. With the shipped data it renders nothing; it appears the
 moment a hand-fitted machine has no system, which is exactly when it is true.
 
-Of 18 Vue systems, as shipped **5 sit on a machine**:
+Of 25 Vue systems, **12 sit on a machine**, 4 are in the office or lab, and 9 have no location on
+record. `vue-licenses.csv` carries three generations of evidence, and the `notes` column says
+which each row is:
 
-- **T-50, T-32, T-36, T-34** — Tie Detection, Rev A, Basler camera. All four are *location
-  estimates* the sheet never confirmed, so they import as "not yet confirmed on the machine"
-  and the audit is what closes them.
-- **T-53** — Tie Detection, **Rev B**, IDS rolling shutter camera, location confirmed.
+- **17 systems from "Vue license notes.docx"** (2022–2023). Its locations are mostly *estimates*
+  that were never confirmed. It has a systematic bias worth knowing: every **off-machine**
+  location in it is confirmed and every **on-machine** location is a guess — it is reliable about
+  where boxes sit in a building and least reliable about the one thing that drives fitment.
+- **`000-20240222-0421` (T-53)**, found missing from the notes and added by hand.
+- **7 systems read off machines in the 2026-08-04 audit** that appear in no licence document at
+  all. They share the `20240222` date stamp with `000-20240222-0421` — an entire build batch the
+  notes never covered.
 
-**No machine has a VGR system**; every VGR unit is in the office, lab, or stock. Nine systems
-have no location recorded at all — that is the backlog, and the Vue licences view lists it first.
+The audit also **confirmed three estimates independently** (T-32, T-34, T-36 — the notes and a
+serial read off the machine agree), which is why those three rows now carry a confirmed location.
 
-### The licence sheet is out of date
+**No machine derives a VGR system.** T-53 and T-57 each physically carry one, recorded in the
+register but deliberately *unplaced*: a machine holds one system here, and `E-VUE-UNIT-TAKEN`
+rejects a workbook that puts two on one machine. Their VGR fitment can only be a hand fitment
+until the model can hold two. `doubleBooked` distinguishes the two cases — two systems fitting the
+*same* subassembly is an error, two fitting different ones is a real machine the model can't
+express, and the copy must not tell you to "move one" in the second case.
 
-`000-20240222-0421` (T-53) does **not** appear in "Vue license notes.docx" — it postdates every
-serial in it, all of which are 2022 or 2023. So the sheet is not a complete inventory. Treat the
-nine unlocated rows as a floor, not the full backlog: there are likely other systems missing from
-it entirely, and reconciling that is worth doing before trusting the counts above.
+Ten systems have **no revision on record**, which is what picks the camera (rev A is a Basler,
+rev B an IDS rolling shutter). Those lines read "variant unknown, no revision on record" rather
+than resolving to a default and quietly showing the wrong camera.
+
+`Apera Vue Licence Register 2026-08-04.xlsx`, kept beside the repo rather than in it, is the
+human-facing version: the same 25 systems plus a by-machine view, an eleven-item list of what to
+settle on a machine, and the ten recorded conflicts. It supersedes the .docx.
+
+### What the register still cannot answer
+
+**T-51 carries both vision subassemblies and has no serial recorded at all** — the only machine in
+that state. **`000-20220915-0080` was read off both T-27 and T-50**, so one of those captures is a
+mistyped serial and one of the two machines holds an unidentified system.
+**`000-20230822-0229`** is licensed VGR premium but was read off T-38's *tie detection* line, so it
+is left unplaced and T-38 shows no vision. **`000-240222-0484`** (T-35) has a six-digit date
+segment where every other serial has eight; it is recorded exactly as read rather than corrected,
+because the serial is the identity of the record.
+
+Treat the nine unlocated rows as a floor, not the full backlog.
 
 That is why an admin can **add** a system the sheet never had, from the Vue page footer or from
 the assign dialog itself — the moment you discover the sheet is short is the moment you are
@@ -283,7 +309,12 @@ The camera is **revision-dependent**: rev A is a Basler, rev B an IDS rolling sh
 variant resolves from the machine's Vue revision (`byRev` in `src/data/subassemblies.ts`), which
 is the only revision the app holds — if camera revision turns out to track something other than
 the licence revision, that mapping is the thing to change. Four machines are rev A and show the
-Basler; T-53 is rev B and shows the IDS.
+Basler; T-53 is rev B and shows the IDS; the seven systems read off machines in the audit have no
+revision recorded and say so instead of defaulting.
+
+A per-machine revision override is deliberately **not** read back as evidence of a system's
+revision. It exists precisely so a machine can differ from its Vue system, so inferring the
+system's revision from it would run the relationship backwards.
 
 Part numbers for the camera, illuminator, and switch are still internal placeholders
 (`VT-####-##`); only the PLC carries its real manufacturer number.

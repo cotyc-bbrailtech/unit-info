@@ -150,7 +150,14 @@ export const VUE_COLUMNS: Column[] = [
   derived('derived_fits', 10),
 ]
 
-export const VUE_LICENCE_VALUES = ['Tie Detection', 'VGR premium', 'VGR enterprise'] as const
+export const VUE_LICENCE_VALUES = [
+  'Tie Detection',
+  'VGR premium',
+  'VGR enterprise',
+  // A VGR system whose tier was never recorded. Blank means "licence unknown"
+  // and fits nothing; this fits Vision — VGR without inventing an entitlement.
+  'VGR',
+] as const
 
 /**
  * Sparse and editable: one row per machine that carries a different revision of

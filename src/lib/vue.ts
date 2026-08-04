@@ -38,7 +38,7 @@ export const VUE_CSV_BY_SERIAL: Map<string, VueUnit> = new Map(
 /** The subassembly a licence tier corresponds to, if any. */
 export function subForLicense(license: VueLicense): BuiltInSubCode | null {
   if (license === 'Tie Detection') return 'VT'
-  if (license === 'VGR premium' || license === 'VGR enterprise') return 'VG'
+  if (license === 'VGR premium' || license === 'VGR enterprise' || license === 'VGR') return 'VG'
   return null
 }
 
@@ -131,16 +131,35 @@ export const vueOn = (unitId: string, o: Overrides): VueSystem | undefined =>
 export const vueSystem = (serial: string, o: Overrides): VueSystem | undefined =>
   vueSystems(o).find((v) => v.serial === serial)
 
-/** Machines with more than one system claiming them. */
-export function doubleBooked(o: Overrides): { unitId: string; serials: string[] }[] {
-  const byUnit = new Map<string, string[]>()
+/**
+ * Machines with more than one system claiming them.
+ *
+ * `sameSub` separates two genuinely different situations that look identical in
+ * a count. Two systems fitting the SAME vision subassembly is an error — one of
+ * them is in the wrong place. Two systems fitting DIFFERENT ones (a tie
+ * detection licence and a VGR licence) is a real machine, correctly recorded,
+ * that the unit model cannot fully express: `vueByUnit` keeps the first, so only
+ * that one drives fitment, the serial and the revision. Telling someone to
+ * "move one" would be wrong advice in the second case.
+ */
+export function doubleBooked(
+  o: Overrides,
+): { unitId: string; serials: string[]; sameSub: boolean }[] {
+  const byUnit = new Map<string, VueSystem[]>()
   for (const v of vueSystems(o)) {
     if (!isUnitId(v.location)) continue
-    byUnit.set(v.location, [...(byUnit.get(v.location) ?? []), v.serial])
+    byUnit.set(v.location, [...(byUnit.get(v.location) ?? []), v])
   }
   return [...byUnit]
-    .filter(([, serials]) => serials.length > 1)
-    .map(([unitId, serials]) => ({ unitId, serials }))
+    .filter(([, systems]) => systems.length > 1)
+    .map(([unitId, systems]) => {
+      const subs = systems.map((v) => subForLicense(v.license))
+      return {
+        unitId,
+        serials: systems.map((v) => v.serial),
+        sameSub: new Set(subs).size < subs.length,
+      }
+    })
 }
 
 /**

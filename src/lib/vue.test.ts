@@ -19,10 +19,11 @@ const camFor = (vueRev: string) =>
 
 describe('Vue licence sheet', () => {
   it('holds every unique system', () => {
-    // 17 from the sheet (18 rows, but 000-20230822-0228 is listed twice) plus
-    // 000-20240222-0421, which postdates the sheet entirely.
-    expect(VUE_CSV).toHaveLength(18)
-    expect(new Set(VUE_CSV.map((v) => v.serial)).size).toBe(18)
+    // 17 from the licence notes (18 rows, but 000-20230822-0228 is listed
+    // twice), plus 8 that postdate them: 000-20240222-0421 and the seven read
+    // off machines in the 2026-08-04 audit.
+    expect(VUE_CSV).toHaveLength(25)
+    expect(new Set(VUE_CSV.map((v) => v.serial)).size).toBe(25)
   })
 
   it('carries no credentials', () => {
@@ -54,28 +55,59 @@ describe('Vue licence sheet', () => {
     expect(isUnitId(locationOf(demo))).toBe(false)
   })
 
-  it('splits into 5 on machines, 4 elsewhere, 9 unlocated', () => {
+  it('splits into 12 on machines, 4 elsewhere, 9 unlocated', () => {
     const onMachine = VUE_CSV.filter((v) => isUnitId(locationOf(v)))
     const unlocated = VUE_CSV.filter((v) => !locationOf(v))
     expect(onMachine.map((v) => locationOf(v)).sort()).toEqual([
+      'T-18',
+      'T-29',
       'T-32',
+      'T-33',
       'T-34',
+      'T-35',
       'T-36',
+      'T-37',
       'T-50',
+      'T-52',
       'T-53',
+      'T-57',
     ])
     expect(unlocated).toHaveLength(9)
     expect(VUE_CSV.length - onMachine.length - unlocated.length).toBe(4)
+  })
+
+  it('never puts two systems on one machine, which the importer rejects', () => {
+    // T-53 and T-57 each physically carry a second, VGR system. They are in the
+    // register but deliberately unplaced, because one machine holds one system
+    // here and E-VUE-UNIT-TAKEN would reject the whole workbook.
+    const machines = VUE_CSV.map((v) => locationOf(v)).filter(isUnitId)
+    expect(new Set(machines).size).toBe(machines.length)
   })
 })
 
 describe('vision subassemblies on the fleet', () => {
   it('gives Tie Detection only to the machines a licence places', () => {
     const withVt = FLEET.filter((u) => u.subs.includes('VT')).map((u) => u.id)
-    expect(withVt.sort()).toEqual(['T-32', 'T-34', 'T-36', 'T-50', 'T-53'])
+    expect(withVt.sort()).toEqual([
+      'T-18',
+      'T-29',
+      'T-32',
+      'T-33',
+      'T-34',
+      'T-35',
+      'T-36',
+      'T-37',
+      'T-50',
+      'T-52',
+      'T-53',
+      'T-57',
+    ])
   })
 
-  it('gives VGR to no machine — every VGR system is off the fleet', () => {
+  it('gives VGR to no machine — both VGR systems on machines are unplaced', () => {
+    // T-53 and T-57 carry one each, recorded in the register but not placed,
+    // because each already holds a tie-detection system. Their VGR fitment can
+    // only be a hand fitment until a machine can hold two systems.
     expect(FLEET.filter((u) => u.subs.includes('VG'))).toHaveLength(0)
   })
 
@@ -154,5 +186,16 @@ describe('vision subassemblies on the fleet', () => {
         .filter((l) => resolved.get(recordKey(u.id, l.key))!.status === 'dup'),
     )
     expect(dups).toHaveLength(0)
+  })
+})
+
+describe('a system with no revision on record', () => {
+  it('says the variant is unknown rather than naming an empty revision', () => {
+    // Seven systems were read off machines with no revision recorded. The
+    // camera cannot be resolved from nothing, and the line has to say so.
+    const t33 = FLEET.find((u) => u.id === 'T-33')!
+    const cam = t33.lines.find((l) => l.key === 'VT:VT-4110-02')!
+    expect(cam.rev).toBe('')
+    expect(cam.desc).toBe('Industrial camera — variant unknown, no revision on record')
   })
 })

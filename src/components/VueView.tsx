@@ -105,11 +105,19 @@ export function VueView({ fleet }: { fleet: Unit[] }) {
             </>
           )}
 
-          {doubles.map((d) => (
-            <div className="field-error" key={d.unitId}>
-              {d.unitId} has two systems against it — {d.serials.join(' and ')}. Move one.
-            </div>
-          ))}
+          {doubles.map((d) =>
+            d.sameSub ? (
+              <div className="field-error" key={d.unitId}>
+                {d.unitId} has two systems fitting the same subassembly —{' '}
+                {d.serials.join(' and ')}. One of them is in the wrong place.
+              </div>
+            ) : (
+              <div className="admin-note text-muted" key={d.unitId}>
+                {d.unitId} carries two systems — {d.serials.join(' and ')}. Both are recorded, but
+                only {d.serials[0]} drives its fitment, serial and revision; a machine holds one.
+              </div>
+            ),
+          )}
           {ghosts.map((g) => (
             <div className="field-error" key={g.serial}>
               {g.serial} is on {g.location}, which isn't in the fleet.

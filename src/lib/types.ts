@@ -12,10 +12,17 @@ export type SubCode = string
 /** Descriptive. Nothing is fitted or unfitted on the strength of it. */
 export type SubKind = 'common' | 'optional'
 
-export type VueLicense = 'Tie Detection' | 'VGR premium' | 'VGR enterprise' | ''
+/**
+ * `'VGR'` is a VGR system whose commercial tier nobody wrote down — distinct
+ * from `''`, which is a system whose licence is unknown altogether. The
+ * difference is load-bearing: a bare `'VGR'` still fits Vision — VGR, where
+ * `''` fits nothing. Recording a tier we do not have would be a guess about a
+ * commercial entitlement, and several systems read off machines have none.
+ */
+export type VueLicense = 'Tie Detection' | 'VGR premium' | 'VGR enterprise' | 'VGR' | ''
 
 /** The tiers an admin can pick. `''` stays reachable but is never offered. */
-export const VUE_LICENCES = ['Tie Detection', 'VGR premium', 'VGR enterprise'] as const
+export const VUE_LICENCES = ['Tie Detection', 'VGR premium', 'VGR enterprise', 'VGR'] as const
 
 /** A row of vue-licenses.csv, exactly as shipped. */
 export interface VueUnit {
