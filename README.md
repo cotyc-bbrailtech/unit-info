@@ -30,7 +30,9 @@ npm run dev
 | `src/data/units.csv` | The real fleet data: chassis VIN, rail gear front/rear serials, loader serial. |
 | `src/data/vue-licenses.csv` | The Apera Vue vision inventory, from "Vue license notes.docx". |
 | `src/data/subassemblies.ts` | The parts list per subassembly. |
+| `src/data/robots.json` | The robot cells on T-51, T-53 and T-57 (and the lab bench), copied from Raiv-trucks `robots/index.json`. |
 | `src/lib/records.ts` | Serial index, duplicate rule, coverage. The core logic. |
+| `src/lib/robots.ts` | Looks up the robot cell on a machine for the unit page's read-only robot panel. |
 | `src/lib/vue.ts` | Vue licence parsing and the machine → vision-system mapping. |
 | `src/lib/overrides.ts` | Admin edits layered over the imported data. |
 | `src/lib/xlsx/` | Dependency-free OOXML read/write (zip, xml, read, write). |
@@ -345,3 +347,12 @@ asserts the bundle stays clean. Keep remote-access credentials in a password man
 `design_handoff_unit_info/` holds the original handoff: the prototype, the design system, and
 the source CSV. The prototype is the fidelity reference — square corners, hairline borders, and
 the four `+` registration marks on every `.blueprint` element are not optional.
+
+## Robot cells
+
+Machines carrying a Stäubli/Apera robot cell show a read-only **Robot cell** panel on the Unit page:
+arm and controller serials, VAL3 version, Apera pipeline, PLC program, cycle-time figures, latest
+backup and code, and open issues. The data is not edited here. It is pulled from the OneDrive robot
+folders into [Raiv-trucks](https://github.com/cotyc-bbrailtech/Raiv-trucks/tree/main/robots), where
+`scripts/build_robot_index.py` writes `robots/index.json`. To refresh, rebuild that file and copy it
+over `src/data/robots.json`.
