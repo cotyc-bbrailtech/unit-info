@@ -1085,3 +1085,33 @@ a:hover {
     display: none;
   }
 }
+
+/* — robot cell —
+   Read-only facts pulled from the OneDrive robot folders (Raiv-trucks robots/). */
+
+.robot-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.robot-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  font-size: 12px;
+}
+.robot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--space-3) var(--space-4);
+}
+.robot-issues summary {
+  cursor: pointer;
+}
+.robot-issues ul {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-4);
+  font-size: 12.5px;
+  text-wrap: pretty;
+}

@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react'
 import { NOTES } from '../data/subassemblies'
 import { buildFleet } from '../lib/fleet'
 import { vueOn } from '../lib/vue'
+import { robotOn } from '../lib/robots'
+import { RobotPanel } from './RobotPanel'
 import { AssignVueDialog } from './VueAssign'
 import { removalConsequence } from '../lib/vueCopy'
 import { partId, partsFor, subCodes, subName } from '../lib/overrides'
@@ -36,6 +38,7 @@ export function UnitView({ unit, resolution }: { unit: Unit; resolution: FleetRe
 
   const cov = coverage.get(unit.id)!
   const selLine = unit.lines.find((l) => l.key === sel) ?? unit.lines[0]
+  const robot = robotOn(unit.id)
 
   return (
     <div className="pad-unit">
@@ -64,6 +67,8 @@ export function UnitView({ unit, resolution }: { unit: Unit; resolution: FleetRe
           Continue audit
         </button>
       </div>
+
+      {robot && <RobotPanel robot={robot} />}
 
       {admin && <AdminUnitPanel unit={unit} />}
 
